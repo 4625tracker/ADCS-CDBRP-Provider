@@ -502,7 +502,12 @@ static int RunApp(int argc, wchar_t **argv)
 
 static void PrepareConsole()
 {
-    if (AttachConsole(ATTACH_PARENT_PROCESS)) {
+    // Only attach to the parent console when we have no usable stdout. If the caller
+    // redirected output (cmd /c ... > file, Start-Process -RedirectStandardOutput) the
+    // handle is already valid and reopening CONOUT$ would throw that redirection away.
+    HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+    bool haveStdout = (h != NULL && h != INVALID_HANDLE_VALUE);
+    if (!haveStdout && AttachConsole(ATTACH_PARENT_PROCESS)) {
         FILE *f = NULL;
         _wfreopen_s(&f, L"CONOUT$", L"w", stdout);
         _wfreopen_s(&f, L"CONOUT$", L"w", stderr);

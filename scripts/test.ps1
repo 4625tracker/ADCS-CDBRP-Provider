@@ -148,8 +148,10 @@ $env:OCSPDBPROVIDER_DIR = $cfgDir
 $dumpFile = Join-Path $WorkDir 'cfg-dump.txt'
 
 function Invoke-Cfg([string[]]$argv) {
-    $quoted = ($argv | ForEach-Object { '"' + $_ + '"' }) -join ' '
-    cmd /c ('"{0}" {1} > "{2}" 2>&1' -f $cfgExe, $quoted, $dumpFile) | Out-Null
+    # OcspConfig is a GUI-subsystem binary: cmd /c would return before it finished, so wait
+    # for the process and let Start-Process own the redirection handles.
+    $p = Start-Process -FilePath $cfgExe -ArgumentList $argv -NoNewWindow -Wait -PassThru `
+         -RedirectStandardOutput $dumpFile -RedirectStandardError "$dumpFile.err"
     if (Test-Path $dumpFile) { return (Get-Content $dumpFile -Encoding UTF8 -Raw) }
     return ''
 }
