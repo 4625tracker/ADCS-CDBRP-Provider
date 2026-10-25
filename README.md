@@ -271,6 +271,7 @@ unknownstatus=2
 |---|---|
 | 搭建、激活、多 CA 配置、排查「状态页显示 0 条」 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
 | 参与开发（构建、20 项自检、改动红线） | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| 参与时请遵守的行为准则 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) |
 | 报告安全漏洞 | [SECURITY.md](SECURITY.md) —— **不要开公开 issue**，用 Security → Report a vulnerability |
 | 报 bug / 提需求 | [新建 issue](https://github.com/4625tracker/ADCS-CDBRP-Provider/issues/new/choose)，模板会要求贴状态页输出 |
 

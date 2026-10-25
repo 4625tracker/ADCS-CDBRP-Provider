@@ -3,6 +3,9 @@
 Thanks for taking the time to help. This document is short on purpose: build it, test it,
 keep the wire format stable, send a pull request.
 
+By taking part — issues, pull requests, reviews, discussions — you agree to the
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
 <sub>**中文摘要**：先跑通 `scripts/test.ps1`（20 项自检），改动不要碰 CLSID / ProgID /
 `provider.ini` 格式 / 快照格式；脚本保持纯 ASCII，`.rc` 保持 UTF-16LE；PR 里说明动机和验证方式。</sub>
 
