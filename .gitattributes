@@ -1,0 +1,8 @@
+# Keep the resource script byte-exact: it is UTF-16LE and rc.exe depends on the BOM.
+*.rc -text
+
+# Everything else is plain text, normalised to LF in the repository.
+* text=auto eol=lf
+*.cer binary
+*.png binary
+*.bmp binary

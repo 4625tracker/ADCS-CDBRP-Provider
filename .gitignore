@@ -1,0 +1,39 @@
+# ------------------------------------------------------------------ build output
+out/
+*.obj
+*.lib
+*.exp
+*.res
+*.pdb
+*.ilk
+*.idb
+
+# ------------------------------------------------------------------ local scratch (never published)
+_excluded/
+_test/
+_test*/
+*.bmp
+provider-native.log
+sync.log
+
+# ------------------------------------------------------------------ IDE / editor
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.VC.db
+*.VC.opendb
+
+# ------------------------------------------------------------------ OS noise
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ------------------------------------------------------------------ local config / secrets
+provider.ini
+rollback.txt
+*.dat
+!docs/**/*.dat
