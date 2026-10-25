@@ -1,0 +1,73 @@
+name: release
+
+# Push a tag like v2.0.0 and this builds the setup EXEs on a GitHub-hosted Windows runner
+# and publishes them as a GitHub release. No local credentials or Visual Studio needed.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Derive version from tag
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          if ([string]::IsNullOrWhiteSpace($version)) { throw 'cannot derive version from tag' }
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "version: $version"
+
+      - name: Build provider and run the self check
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/test.ps1 -Arch x64
+
+      - name: Build setup (x64)
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/build-installer.ps1 -Arch x64 -Version $env:VERSION
+
+      - name: Build setup (x86)
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/build-installer.ps1 -Arch x86 -Version $env:VERSION
+
+      - name: Checksums and release notes
+        shell: pwsh
+        run: |
+          $lines = Get-ChildItem dist -Filter '*.exe' | Sort-Object Name | ForEach-Object {
+            $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$h  $($_.Name)"
+          }
+          Set-Content -Path dist/SHA256SUMS.txt -Value $lines -Encoding ascii
+          Get-Content dist/SHA256SUMS.txt
+
+          $notes = "docs/RELEASE-NOTES-$env:VERSION.md"
+          if (Test-Path $notes) {
+            Copy-Item $notes dist/release-notes.md
+            Write-Host "release notes: $notes"
+          } else {
+            "OCSP CDBRP Provider $env:VERSION" | Set-Content -Path dist/release-notes.md -Encoding utf8
+            Write-Host "release notes: generated fallback (no $notes)"
+          }
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v$env:VERSION"
+          gh release create $tag `
+            --title "OCSP CDBRP Provider $env:VERSION" `
+            --notes-file dist/release-notes.md `
+            --latest `
+            dist/*.exe dist/SHA256SUMS.txt
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed ($LASTEXITCODE)" }
+          Write-Host "released $tag"

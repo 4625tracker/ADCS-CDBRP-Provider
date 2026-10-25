@@ -52,6 +52,17 @@ are documented in [docs/REVERSE-ENGINEERING.md](docs/REVERSE-ENGINEERING.md).
   self-check that runs without administrator rights.
 - **No Microsoft binaries in this repository.** Only this project's own code.
 
+## Releasing
+
+Two ways, both produce the same artifacts:
+
+- **GitHub Actions (no local tooling):** push a tag like `v2.0.0` — `.github/workflows/release.yml`
+  builds the x64 and x86 setups on a Windows runner, runs the self check, writes
+  `SHA256SUMS.txt` and publishes the release with `docs/RELEASE-NOTES-<version>.md` as the body.
+- **Locally:** `pwsh -File scripts/release.ps1` builds both setups into `dist/`, writes the
+  checksums and prints the exact `gh release create` command (or the web-UI steps) when `gh`
+  is not available.
+
 ## Quick start
 
 ### From a release (no build tools needed)
