@@ -37,3 +37,6 @@ provider.ini
 rollback.txt
 *.dat
 !docs/**/*.dat
+
+# ------------------------------------------------------------------ release artifacts
+dist/

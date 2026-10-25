@@ -133,3 +133,24 @@ uitest.exe selftest                    # info + verify + config, dialog auto-clo
 ```
 
 `scripts/test.ps1` builds the fixtures, runs this harness and asserts on the results.
+
+## 8. Packaging
+
+`src/setup/Setup.cpp` builds the release installer. It is deliberately thin:
+
+1. the payload (DLL, `uitest.exe`, `install.ps1`, `sync.ps1`, license) is compiled into the
+   EXE as `RCDATA` resources, so the installer is a single self-contained file;
+2. at run time it extracts the payload to `%TEMP%\ocsp-cdbrp-setup-<pid>`;
+3. for modes that need administrator rights it re-launches itself through
+   `ShellExecuteEx(…, "runas")` — the manifest is `asInvoker`, so read-only modes
+   (`status`, `--list`, `--extract-only`) never trigger a UAC prompt;
+4. it runs `powershell.exe -File <temp>\scripts\install.ps1 -Mode <mode>` and returns the
+   child's exit code, then removes the temporary directory (unless `--keep-temp`).
+
+Because the payload contains the scripts verbatim, `--extract-only` yields exactly the files
+that would be installed, and the install/activate/uninstall logic stays in one place.
+`scripts/build-installer.ps1` stages the payload in an ASCII-only temp directory (rc.exe
+cannot resolve resource filenames with non-ASCII characters), generates `setup_version.h`
+and `Setup.rc`, and links with `/MT` so the setup needs no VC++ redistributable.
+`scripts/release.ps1` builds every architecture, writes `SHA256SUMS.txt` and can publish the
+GitHub release through `gh`.

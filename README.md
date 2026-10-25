@@ -54,6 +54,25 @@ are documented in [docs/REVERSE-ENGINEERING.md](docs/REVERSE-ENGINEERING.md).
 
 ## Quick start
 
+### From a release (no build tools needed)
+
+Download `OCSP-CDBRP-Provider-Setup-<version>-<arch>.exe` from
+[Releases](https://github.com/4625tracker/OCSP-CDBRP-Provider/releases), verify its SHA-256
+against `SHA256SUMS.txt`, then run it **as administrator**:
+
+```powershell
+.\OCSP-CDBRP-Provider-Setup-2.0.0-x64.exe                 # install (does not switch the responder)
+.\OCSP-CDBRP-Provider-Setup-2.0.0-x64.exe -Mode activate  # switch the responder to this provider
+.\OCSP-CDBRP-Provider-Setup-2.0.0-x64.exe -Mode status    # read-only overview, no elevation
+```
+
+The setup embeds the DLL, `uitest.exe`, the scripts and the license; it extracts to a temp
+directory and runs the same `install.ps1` described below, so there is only one install
+implementation. `--help`, `--list` and `--extract-only <dir>` work without elevation.
+The setup executables are unsigned — check the checksum before running.
+
+### From source
+
 Prerequisites: Windows with **Visual Studio 2019/2022** (or Build Tools) including the
 *Desktop development with C++* workload, and PowerShell 5.1+.
 
@@ -116,10 +135,12 @@ Resolution order for the install directory: `OCSPDBPROVIDER_DIR` → `HKLM\SOFTW
 
 ```
 src/native/            provider DLL, resources, self-test harness
+src/setup/             setup EXE: embedded payload, self-elevation, runs install.ps1
 src/legacy/managed/    earlier managed (.NET) prototype, unsupported
-scripts/               build, install, uninstall, sync, test
+scripts/               build, build-installer, install, uninstall, sync, test, release
 docs/                  architecture, deployment, compatibility, reverse-engineering
 test/                  helpers to build a throw-away test PKI
+dist/                  release artifacts (generated, not committed)
 ```
 
 ## Documentation

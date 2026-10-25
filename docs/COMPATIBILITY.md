@@ -46,7 +46,7 @@ Notes:
 |---|---|
 | PowerShell | 5.1+ (scripts only; not needed at OCSP runtime) |
 | .NET | not used by the provider |
-| VC++ redistributable | not required |
+| VC++ redistributable | not required (the provider links import libraries only; the setup is statically linked with `/MT`) |
 | Registry | `HKCR\CLSID\{...}` (registration) and `HKLM\SOFTWARE\OcspDbProvider` (install dir) |
 | Service identity | `NETWORK SERVICE` needs read/execute on the install directory |
 | CA access | `CA_ACCESS_READ` (0x100) for whoever runs `certutil -view` (the SYSTEM task) |

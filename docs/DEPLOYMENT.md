@@ -9,7 +9,7 @@
 |---|---|
 | Host | Windows Server with the **AD CS Online Responder** role (or Windows 10/11 + that role) |
 | CA | Enterprise/Standalone CA database reachable; the responder identity needs `CA_ACCESS_READ` (0x100) |
-| Build host | Visual Studio 2019/2022 or Build Tools with *Desktop development with C++* |
+| Build host | Visual Studio 2019/2022 or Build Tools with *Desktop development with C++* — **only when building from source**; the release setup EXE needs nothing |
 | Runtime | PowerShell 5.1+ (for the scripts only; the provider itself has no PowerShell dependency) |
 | Rights | Local administrator for install/activate; the sync task runs as `SYSTEM` |
 
@@ -17,6 +17,28 @@ The provider is a plain in-proc COM DLL: no .NET runtime, no VC++ redistributabl
 (it links only `ole32/oleaut32/advapi32/user32/comdlg32/gdi32`, all present on Windows).
 
 ## 2. Install
+
+### 2.1 From the setup EXE (recommended)
+
+```powershell
+# verify the download first
+Get-FileHash .\OCSP-CDBRP-Provider-Setup-2.0.0-x64.exe -Algorithm SHA256
+# compare with the line for this file in SHA256SUMS.txt
+
+.\OCSP-CDBRP-Provider-Setup-2.0.0-x64.exe                    # install
+.\OCSP-CDBRP-Provider-Setup-2.0.0-x64.exe -Mode activate     # switch the responder
+```
+
+The setup is `asInvoker` and elevates itself with `runas` only for the modes that need it
+(`install`, `activate`, `deactivate`, `uninstall`, `sync`). `-Mode status`, `--list` and
+`--extract-only <dir>` never prompt for elevation. It extracts its embedded payload
+(DLL, `uitest.exe`, `install.ps1`, `sync.ps1`, license) to a temporary directory and runs
+the very same `install.ps1` described below, so the install logic exists once.
+
+Useful flags: `-CAConfig "SRV1\CORP-CA"`, `-InstallDir <dir>`, `-RemoveFiles` (uninstall),
+`--quiet`, `--keep-temp`, `--help`.
+
+### 2.2 From source
 
 ```powershell
 pwsh -File scripts/install.ps1 -Mode install -CAConfig 'SRV1\CORP-CA'
