@@ -2,7 +2,7 @@
 //
 // 设计要点：
 //   * 载荷（DLL / uitest.exe / 安装脚本 / 许可证）以 RCDATA 资源内嵌，运行时解到
-//     %TEMP%\ocsp-cdbrp-setup-<pid>，然后调用同一份 install.ps1 执行真正的安装；
+//     %TEMP%\adcs-cdbrp-setup-<pid>，然后调用同一份 install.ps1 执行真正的安装；
 //     安装逻辑只有一处实现（脚本），安装器只负责解包、提权和传参。
 //   * 清单是 asInvoker：需要管理员时才用 ShellExecuteExW("runas") 自举提权，
 //     因此 --extract-only / --list / -Mode status 这类只读操作不会弹 UAC。
@@ -230,7 +230,7 @@ static int RelaunchElevated(int argc, wchar_t **argv)
 
 static void PrintHelp()
 {
-    Print(L"OCSP CDBRP Provider Setup %s (%s)", SETUP_VERSION, SETUP_ARCH);
+    Print(L"ADCS CDBRP Provider Setup %s (%s)", SETUP_VERSION, SETUP_ARCH);
     Print(L"");
     Print(L"  Setup.exe [options]");
     Print(L"");
@@ -281,7 +281,7 @@ int wmain(int argc, wchar_t **argv)
     for (int i = 0; i < (int)(sizeof(validModes) / sizeof(validModes[0])); i++)
         if (mode == validModes[i]) modeOk = true;
 
-    Print(L"OCSP CDBRP Provider Setup %s (%s)", SETUP_VERSION, SETUP_ARCH);
+    Print(L"ADCS CDBRP Provider Setup %s (%s)", SETUP_VERSION, SETUP_ARCH);
     Print(L"");
 
     if (listOnly) {
@@ -300,7 +300,7 @@ int wmain(int argc, wchar_t **argv)
         wchar_t tmp[MAX_PATH * 2] = {0};
         GetTempPathW(_countof(tmp), tmp);
         wchar_t name[64];
-        _snwprintf_s(name, _countof(name), _TRUNCATE, L"ocsp-cdbrp-setup-%lu", GetCurrentProcessId());
+        _snwprintf_s(name, _countof(name), _TRUNCATE, L"adcs-cdbrp-setup-%lu", GetCurrentProcessId());
         tempRoot = std::wstring(tmp) + name;
     }
 

@@ -22,11 +22,11 @@ The provider is a plain in-proc COM DLL: no .NET runtime, no VC++ redistributabl
 
 ```powershell
 # verify the download first
-Get-FileHash .\OCSP-CDBRP-Provider-Setup-2.0.0-x64.exe -Algorithm SHA256
+Get-FileHash .\ADCS-CDBRP-Provider-Setup-2.0.0-x64.exe -Algorithm SHA256
 # compare with the line for this file in SHA256SUMS.txt
 
-.\OCSP-CDBRP-Provider-Setup-2.0.0-x64.exe                    # install
-.\OCSP-CDBRP-Provider-Setup-2.0.0-x64.exe -Mode activate     # switch the responder
+.\ADCS-CDBRP-Provider-Setup-2.0.0-x64.exe                    # install
+.\ADCS-CDBRP-Provider-Setup-2.0.0-x64.exe -Mode activate     # switch the responder
 ```
 
 The setup is `asInvoker` and elevates itself with `runas` only for the modes that need it

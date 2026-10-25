@@ -1,10 +1,18 @@
-# OCSP CDBRP Provider 2.1.0
+# ADCS CDBRP Provider 2.1.0
 
 Multi-CA 配置界面 + 状态页自诊断。
 
+> **项目更名为 `ADCS-CDBRP-Provider`。** `CDBRP` = **C**A **D**atabase **B**ased **R**evocation
+> **P**rovider，即「基于证书数据库的吊销提供程序」。安装包文件名随之变为
+> `ADCS-CDBRP-Provider-Setup-<version>-<arch>.exe`。
+> CLSID、ProgID、`OcspDbProvider.dll`、安装目录、`provider.ini` 与快照格式**都没有变**，
+> 已部署的机器升级不受影响。
+
 <sub>**English summary.** This release adds a standalone multi-CA configuration tool
 (`OcspConfig.exe`), shares the configuration model between the provider and that tool, and
-makes the responder status page explain *why* a snapshot shows 0 entries.</sub>
+makes the responder status page explain *why* a snapshot shows 0 entries. The project is now
+named `ADCS-CDBRP-Provider` — CDBRP stands for *CA Database Based Revocation Provider* — while
+binary identity (CLSID, ProgID, DLL name, install layout) is unchanged.</sub>
 
 ## 新增：多 CA 配置界面（OcspConfig.exe）
 
@@ -87,6 +95,6 @@ CORP-B                       both     2      0      1        7      1       C:\P
 ## 校验
 
 ```powershell
-Get-FileHash .\OCSP-CDBRP-Provider-Setup-2.1.0-x64.exe -Algorithm SHA256
+Get-FileHash .\ADCS-CDBRP-Provider-Setup-2.1.0-x64.exe -Algorithm SHA256
 # 与 SHA256SUMS.txt 中对应行比较
 ```

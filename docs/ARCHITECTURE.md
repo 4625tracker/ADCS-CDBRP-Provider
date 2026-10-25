@@ -140,7 +140,7 @@ uitest.exe selftest                    # info + verify + config, dialog auto-clo
 
 1. the payload (DLL, `uitest.exe`, `install.ps1`, `sync.ps1`, license) is compiled into the
    EXE as `RCDATA` resources, so the installer is a single self-contained file;
-2. at run time it extracts the payload to `%TEMP%\ocsp-cdbrp-setup-<pid>`;
+2. at run time it extracts the payload to `%TEMP%\adcs-cdbrp-setup-<pid>`;
 3. for modes that need administrator rights it re-launches itself through
    `ShellExecuteEx(…, "runas")` — the manifest is `asInvoker`, so read-only modes
    (`status`, `--list`, `--extract-only`) never trigger a UAC prompt;

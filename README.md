@@ -1,4 +1,4 @@
-# OCSP CA-Database Revocation Provider (CDBRP)
+# ADCS CDBRP - CA Database Based Revocation Provider
 
 A native COM revocation provider for **AD CS Online Responder** that answers OCSP from a
 snapshot of the **CA certificate database** instead of a CRL.
@@ -67,14 +67,14 @@ Two ways, both produce the same artifacts:
 
 ### From a release (no build tools needed)
 
-Download `OCSP-CDBRP-Provider-Setup-<version>-<arch>.exe` from
-[Releases](https://github.com/4625tracker/OCSP-CDBRP-Provider/releases), verify its SHA-256
+Download `ADCS-CDBRP-Provider-Setup-<version>-<arch>.exe` from
+[Releases](https://github.com/4625tracker/ADCS-CDBRP-Provider/releases), verify its SHA-256
 against `SHA256SUMS.txt`, then run it **as administrator**:
 
 ```powershell
-.\OCSP-CDBRP-Provider-Setup-2.0.0-x64.exe                 # install (does not switch the responder)
-.\OCSP-CDBRP-Provider-Setup-2.0.0-x64.exe -Mode activate  # switch the responder to this provider
-.\OCSP-CDBRP-Provider-Setup-2.0.0-x64.exe -Mode status    # read-only overview, no elevation
+.\ADCS-CDBRP-Provider-Setup-2.0.0-x64.exe                 # install (does not switch the responder)
+.\ADCS-CDBRP-Provider-Setup-2.0.0-x64.exe -Mode activate  # switch the responder to this provider
+.\ADCS-CDBRP-Provider-Setup-2.0.0-x64.exe -Mode status    # read-only overview, no elevation
 ```
 
 The setup embeds the DLL, `uitest.exe`, the scripts and the license; it extracts to a temp

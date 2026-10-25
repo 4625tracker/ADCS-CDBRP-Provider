@@ -1,4 +1,4 @@
-# OCSP CDBRP Provider 2.0.0
+# ADCS CDBRP Provider 2.0.0
 
 A native COM revocation provider for **AD CS Online Responder** that answers OCSP from a
 snapshot of the **CA certificate database** instead of a CRL. Revocation becomes visible
@@ -12,8 +12,8 @@ CRL，吊销后约 1 分钟即可在 OCSP 中体现。本版本提供自解包 E
 
 | File | Description |
 |---|---|
-| `OCSP-CDBRP-Provider-Setup-2.0.0-x64.exe` | Installer for 64-bit Windows (most common) |
-| `OCSP-CDBRP-Provider-Setup-2.0.0-x86.exe` | Installer for 32-bit Windows |
+| `ADCS-CDBRP-Provider-Setup-2.0.0-x64.exe` | Installer for 64-bit Windows (most common) |
+| `ADCS-CDBRP-Provider-Setup-2.0.0-x86.exe` | Installer for 32-bit Windows |
 | `SHA256SUMS.txt` | Checksums for the files above |
 
 The installers embed the provider DLL, the self-test harness and the install/sync scripts;
@@ -24,7 +24,7 @@ SHA-256 before running.
 
 ```powershell
 # right-click -> Run as administrator, or:
-.\OCSP-CDBRP-Provider-Setup-2.0.0-x64.exe
+.\ADCS-CDBRP-Provider-Setup-2.0.0-x64.exe
 ```
 
 The setup extracts its payload to a temporary directory, then runs the same
@@ -34,7 +34,7 @@ first snapshot and registers the every-minute refresh task. **It does not switch
 responder yet** — that is a separate, reversible step:
 
 ```powershell
-.\OCSP-CDBRP-Provider-Setup-2.0.0-x64.exe -Mode activate
+.\ADCS-CDBRP-Provider-Setup-2.0.0-x64.exe -Mode activate
 ```
 
 Other modes: `deactivate` (back to the built-in CRL provider), `uninstall`,
@@ -44,8 +44,8 @@ Other modes: `deactivate` (back to the built-in CRL provider), `uninstall`,
 Non-elevated inspection of the payload is possible:
 
 ```powershell
-.\OCSP-CDBRP-Provider-Setup-2.0.0-x64.exe --list
-.\OCSP-CDBRP-Provider-Setup-2.0.0-x64.exe --extract-only C:\temp\payload
+.\ADCS-CDBRP-Provider-Setup-2.0.0-x64.exe --list
+.\ADCS-CDBRP-Provider-Setup-2.0.0-x64.exe --extract-only C:\temp\payload
 ```
 
 ## Verify
@@ -102,11 +102,11 @@ openssl ocsp -issuer ca.cer -serial 0x<serial> -url http://<responder>:<port>/oc
 
 ## Documentation
 
-- [Architecture](https://github.com/4625tracker/OCSP-CDBRP-Provider/blob/main/docs/ARCHITECTURE.md)
-- [Deployment](https://github.com/4625tracker/OCSP-CDBRP-Provider/blob/main/docs/DEPLOYMENT.md)
-- [Compatibility](https://github.com/4625tracker/OCSP-CDBRP-Provider/blob/main/docs/COMPATIBILITY.md)
-- [Reverse engineering notes](https://github.com/4625tracker/OCSP-CDBRP-Provider/blob/main/docs/REVERSE-ENGINEERING.md)
+- [Architecture](https://github.com/4625tracker/ADCS-CDBRP-Provider/blob/main/docs/ARCHITECTURE.md)
+- [Deployment](https://github.com/4625tracker/ADCS-CDBRP-Provider/blob/main/docs/DEPLOYMENT.md)
+- [Compatibility](https://github.com/4625tracker/ADCS-CDBRP-Provider/blob/main/docs/COMPATIBILITY.md)
+- [Reverse engineering notes](https://github.com/4625tracker/ADCS-CDBRP-Provider/blob/main/docs/REVERSE-ENGINEERING.md)
 
 ## License
 
-[MIT](https://github.com/4625tracker/OCSP-CDBRP-Provider/blob/main/LICENSE)
+[MIT](https://github.com/4625tracker/ADCS-CDBRP-Provider/blob/main/LICENSE)

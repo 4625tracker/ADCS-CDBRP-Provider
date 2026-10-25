@@ -47,7 +47,7 @@ foreach ($arch in $archs) {
     Write-Host ""
     Write-Host "=== setup: $arch ===" -ForegroundColor Cyan
     & (Join-Path $PSScriptRoot 'build-installer.ps1') -Arch $arch -Version $Version
-    $built += (Join-Path $DistDir ("OCSP-CDBRP-Provider-Setup-{0}-{1}.exe" -f $Version, $arch))
+    $built += (Join-Path $DistDir ("ADCS-CDBRP-Provider-Setup-{0}-{1}.exe" -f $Version, $arch))
 }
 
 $artifacts = Get-ChildItem $DistDir -Filter "*.exe" | Where-Object { $_.Name -match [regex]::Escape($Version) }
@@ -93,7 +93,7 @@ if ($Publish) {
     & gh auth status 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "gh is not authenticated (run: gh auth login)" }
 
-    $ghArgs = @('release', 'create', $tag, '--title', "OCSP CDBRP Provider $Version", '--latest')
+    $ghArgs = @('release', 'create', $tag, '--title', "ADCS CDBRP Provider $Version", '--latest')
     if ($notesArg) { $ghArgs += @('--notes-file', $notesArg) } else { $ghArgs += '--generate-notes' }
     $ghArgs += $assetPaths
 
@@ -108,14 +108,14 @@ if ($Publish) {
     Write-Host "Option A - GitHub CLI:"
     $assetList = ($assetPaths | ForEach-Object { '"' + $_ + '"' }) -join ' '
     if ($notesArg) {
-        Write-Host ("  gh release create {0} --title `"OCSP CDBRP Provider {1}`" --notes-file `"{2}`" --latest {3}" -f $tag, $Version, $notesArg, $assetList)
+        Write-Host ("  gh release create {0} --title `"ADCS CDBRP Provider {1}`" --notes-file `"{2}`" --latest {3}" -f $tag, $Version, $notesArg, $assetList)
     } else {
-        Write-Host ("  gh release create {0} --title `"OCSP CDBRP Provider {1}`" --generate-notes --latest {2}" -f $tag, $Version, $assetList)
+        Write-Host ("  gh release create {0} --title `"ADCS CDBRP Provider {1}`" --generate-notes --latest {2}" -f $tag, $Version, $assetList)
     }
     Write-Host ""
     Write-Host "Option B - web UI:"
-    Write-Host "  1. open https://github.com/4625tracker/OCSP-CDBRP-Provider/releases/new"
-    Write-Host ("  2. tag: {0}   title: OCSP CDBRP Provider {1}" -f $tag, $Version)
+    Write-Host "  1. open https://github.com/4625tracker/ADCS-CDBRP-Provider/releases/new"
+    Write-Host ("  2. tag: {0}   title: ADCS CDBRP Provider {1}" -f $tag, $Version)
     Write-Host ("  3. paste the body of docs/RELEASE-NOTES-{0}.md" -f $Version)
     Write-Host "  4. attach every file from dist/ (the EXEs and SHA256SUMS.txt)"
     Write-Host ""

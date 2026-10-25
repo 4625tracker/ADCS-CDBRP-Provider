@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Build the self-contained setup EXE (OCSP-CDBRP-Provider-Setup-<ver>-<arch>.exe).
+    Build the self-contained setup EXE (ADCS-CDBRP-Provider-Setup-<ver>-<arch>.exe).
 
 .DESCRIPTION
     The setup embeds the provider DLL, uitest.exe, the install/sync scripts and the license
@@ -53,7 +53,7 @@ foreach ($f in @($dll, $uit, $cfg)) {
 }
 
 # ------------------------------------------------------------------ 2. stage payload (ASCII path)
-$stage = Join-Path $env:TEMP ("ocsp-cdbrp-setup-build-" + $Arch)
+$stage = Join-Path $env:TEMP ("adcs-cdbrp-setup-build-" + $Arch)
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 $payloadDir = Join-Path $stage 'payload'
 New-Item -ItemType Directory -Force -Path $payloadDir | Out-Null
@@ -108,11 +108,11 @@ $rc = @(
     '        BLOCK "040904b0"',
     '        BEGIN',
     '            VALUE "CompanyName", "4625tracker"',
-    ('            VALUE "FileDescription", "OCSP CDBRP Provider setup (' + $Arch + ')"'),
+    ('            VALUE "FileDescription", "ADCS CDBRP Provider setup (' + $Arch + ')"'),
     ('            VALUE "FileVersion", "' + $Version + '"'),
     '            VALUE "LegalCopyright", "MIT License"',
-    ('            VALUE "OriginalFilename", "OCSP-CDBRP-Provider-Setup-' + $Version + '-' + $Arch + '.exe"'),
-    '            VALUE "ProductName", "OCSP CDBRP Provider"',
+    ('            VALUE "OriginalFilename", "ADCS-CDBRP-Provider-Setup-' + $Version + '-' + $Arch + '.exe"'),
+    '            VALUE "ProductName", "ADCS CDBRP Provider"',
     ('            VALUE "ProductVersion", "' + $Version + '"'),
     '        END',
     '    END',
@@ -145,7 +145,7 @@ if (Test-Path $vswhere) {
 }
 if (-not $vcvars) { throw "vcvars for $Arch not found (install the $Arch C++ build tools)" }
 
-$exe = Join-Path $OutDir ("OCSP-CDBRP-Provider-Setup-{0}-{1}.exe" -f $Version, $Arch)
+$exe = Join-Path $OutDir ("ADCS-CDBRP-Provider-Setup-{0}-{1}.exe" -f $Version, $Arch)
 $res = Join-Path $stage 'Setup.res'
 
 $cmd = @(
