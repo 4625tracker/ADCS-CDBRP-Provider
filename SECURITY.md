@@ -1,8 +1,9 @@
 # Security Policy
 
-<sub>**中文摘要**：安全漏洞请用 GitHub 的私密漏洞报告（Security → Report a vulnerability），
-不要开公开 issue。受支持的是最新的 2.x 版本。这个提供程序以 SYSTEM 身份运行在
-`ocspsvc.exe` 进程内，能写快照文件或安装目录就等于能改变吊销结果，请按这个前提评估风险。</sub>
+<sub>**中文摘要**：安全漏洞请走私密渠道——首选 GitHub 的私密漏洞报告
+（Security → Report a vulnerability），也可以发邮件到 **fgsh_20100822@outlook.com**
+（标题加 `[security]`）。不要开公开 issue。受支持的是最新的 2.x 版本。这个提供程序以 SYSTEM
+身份运行在 `ocspsvc.exe` 进程内，能写快照文件或安装目录就等于能改变吊销结果，请按这个前提评估风险。</sub>
 
 ## Supported versions
 
@@ -14,10 +15,13 @@
 
 ## Reporting a vulnerability
 
-**Do not open a public issue.** Use GitHub's private reporting:
+**Do not open a public issue.** Two private channels, both read by the maintainer:
 
-→ **Security** tab → **Report a vulnerability**
-(<https://github.com/4625tracker/ADCS-CDBRP-Provider/security/advisories/new>)
+1. **GitHub private advisory (preferred)** — **Security** tab → **Report a vulnerability**
+   (<https://github.com/4625tracker/ADCS-CDBRP-Provider/security/advisories/new>).
+   Preferred because the discussion, the fix and the credit stay attached to the advisory.
+2. **E-mail** — [fgsh_20100822@outlook.com](mailto:fgsh_20100822@outlook.com) with
+   `[security]` in the subject, if you would rather not use GitHub.
 
 Please include:
 

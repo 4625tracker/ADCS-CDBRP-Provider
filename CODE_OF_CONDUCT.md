@@ -1,8 +1,9 @@
 # Contributor Covenant Code of Conduct
 
 <sub>**中文摘要**：本项目采用 Contributor Covenant 2.1。参与即表示同意遵守。遇到违规行为请**私密**
-报告给维护者 [@4625tracker](https://github.com/4625tracker)——用 GitHub 的私密报告表单
-（Security → Report a vulnerability）或直接私信，**不要开公开 issue**。
+报告给维护者 [@4625tracker](https://github.com/4625tracker)：首选邮箱
+**fgsh_20100822@outlook.com**（标题注明 code of conduct），也可用 GitHub 的私密报告表单
+（Security → Report a vulnerability）。**不要开公开 issue**。
 技术争论不算违规，但"我是对的"不是刻薄的借口。英文原文为准，中文摘要仅供参考。</sub>
 
 ## Our Pledge
@@ -83,12 +84,12 @@ reporter of any incident.
 This is a single-maintainer project, so reports go directly to the maintainer,
 [@4625tracker](https://github.com/4625tracker). Please use a **private** channel:
 
-1. **GitHub private report** — the repository's **Security** tab →
+1. **E-mail (preferred):** [fgsh_20100822@outlook.com](mailto:fgsh_20100822@outlook.com) —
+   put "code of conduct" in the subject line.
+2. **GitHub private report** — the repository's **Security** tab →
    **Report a vulnerability**
-   (<https://github.com/4625tracker/ADCS-CDBRP-Provider/security/advisories/new>).
-   It is private, and it is fine to use it for conduct reports; put "code of conduct"
-   in the title so it is not handled as a security advisory.
-2. **Direct message** on GitHub to the maintainer, if you already have a channel with them.
+   (<https://github.com/4625tracker/ADCS-CDBRP-Provider/security/advisories/new>),
+   with "code of conduct" in the title so it is not handled as a security advisory.
 
 Please do **not** use public issues, pull requests or discussions to report conduct
 problems, and do not include screenshots of private conversations you have not been
