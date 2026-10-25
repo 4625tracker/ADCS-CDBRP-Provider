@@ -131,6 +131,54 @@ Check 'unknown serial -> per-CA unknown (9)' ($out -match 'status=9') $out
 $out = Invoke-Uitest ("verify 00{0}" -f $validSerial)
 Check 'leading-zero serial still matches' ($out -match 'status=0') $out
 
+# ------------------------------------------------------------------ 4. multi-CA config tool
+Write-Host '=== multi-CA config tool' -ForegroundColor Cyan
+$cfgExe = Join-Path $RepoRoot ("out\$Arch\OcspConfig.exe")
+$cfgDir = Join-Path $WorkDir 'cfg'
+$cfgData = Join-Path $cfgDir 'data'
+New-Item -ItemType Directory -Force -Path $cfgData | Out-Null
+Copy-Item (Join-Path $DataDir 'TEST_CA.dat') (Join-Path $cfgData 'a.dat') -Force
+Set-Content (Join-Path $cfgData 'b.dat') @(
+    '# b',
+    ("AAAA1111BBBB2222`t21`t{0}`t4`t{1}" -f $ftRevoked, $ftNotAfter)
+) -Encoding ASCII
+
+$savedEnv = $env:OCSPDBPROVIDER_DIR
+$env:OCSPDBPROVIDER_DIR = $cfgDir
+$dumpFile = Join-Path $WorkDir 'cfg-dump.txt'
+
+function Invoke-Cfg([string[]]$argv) {
+    $quoted = ($argv | ForEach-Object { '"' + $_ + '"' }) -join ' '
+    cmd /c ('"{0}" {1} > "{2}" 2>&1' -f $cfgExe, $quoted, $dumpFile) | Out-Null
+    if (Test-Path $dumpFile) { return (Get-Content $dumpFile -Encoding UTF8 -Raw) }
+    return ''
+}
+
+$null = Invoke-Cfg @('--set', 'CORP-A', '--snapshot', (Join-Path $cfgData 'a.dat'), '--check', '0', '--unknown', '5')
+$null = Invoke-Cfg @('--set', 'CORP-B', '--snapshot', (Join-Path $cfgData 'b.dat'), '--unknown', '7')
+
+$out = Invoke-Cfg @('--dump')
+Check 'config tool: both CAs listed'      (($out -match 'CORP-A') -and ($out -match 'CORP-B')) $out
+Check 'config tool: CA A rows and codes'  ($out -match 'CORP-A\s+ini\s+0\s+0\s+1\s+5\s+2\s') $out
+Check 'config tool: CA B rows and codes'  ($out -match 'CORP-B\s+ini\s+2\s+0\s+1\s+7\s+1\s') $out
+
+# A partial --set must keep the other fields
+$null = Invoke-Cfg @('--set', 'CORP-A', '--unknown', '9')
+$out = Invoke-Cfg @('--dump')
+Check 'config tool: partial update keeps other fields' ($out -match 'CORP-A\s+ini\s+0\s+0\s+1\s+9\s+2\s') $out
+
+# The provider must read exactly what the tool wrote
+$verifyOut = Join-Path $WorkDir 'verify.txt'
+cmd /c ('"{0}" verify DEADBEEF00000000000000000000000000000001 -dll "{1}" -ca CORP-A > "{2}" 2>&1' -f $Uit, $Dll, $verifyOut) | Out-Null
+$out = if (Test-Path $verifyOut) { Get-Content $verifyOut -Encoding UTF8 -Raw } else { '' }
+Check 'provider reads tool-written config (unknown=9)' ($out -match 'status=9') $out
+
+$out = Invoke-Cfg @('--remove', 'CORP-B')
+$out = Invoke-Cfg @('--dump')
+Check 'config tool: removed CA disappears' (-not ($out -match 'CORP-B')) $out
+
+$env:OCSPDBPROVIDER_DIR = $savedEnv
+
 # ------------------------------------------------------------------ summary
 if (-not $KeepFixtures) { Remove-Item $WorkDir -Recurse -Force -ErrorAction SilentlyContinue }
 Write-Host ''

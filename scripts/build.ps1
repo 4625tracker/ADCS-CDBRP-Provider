@@ -87,24 +87,31 @@ $machine = @{ x64 = 'X64'; x86 = 'X86'; arm64 = 'ARM64' }[$Arch]
 $dll  = Join-Path $OutDir 'OcspDbProvider.dll'
 $res  = Join-Path $OutDir 'OcspDbProvider.res'
 $uit  = Join-Path $OutDir 'uitest.exe'
+$cfg  = Join-Path $OutDir 'OcspConfig.exe'
+$cfgRes = Join-Path $OutDir 'OcspConfig.res'
 
 $cmd = @(
     ('call "' + $vcvars + '" >nul'),
     ('cd /d "' + $SrcDir + '"'),
     ('rc /nologo /fo "' + $res + '" OcspDbProvider.rc'),
+    ('rc /nologo /fo "' + $cfgRes + '" OcspConfig.rc'),
     ('cl /nologo /LD /EHsc /O2 /W3 /utf-8 /D_CRT_SECURE_NO_WARNINGS /DUNICODE /D_UNICODE ' +
-     '/D_WIN32_WINNT=0x0601 OcspDbProvider.cpp ' +
+     '/D_WIN32_WINNT=0x0601 OcspDbProvider.cpp OcspDbConfig.cpp ' +
      '/link /DEF:OcspDbProvider.def /SUBSYSTEM:WINDOWS /MACHINE:' + $machine + ' /OUT:"' + $dll + '" "' + $res + '" ' +
      'ole32.lib oleaut32.lib advapi32.lib user32.lib comdlg32.lib gdi32.lib'),
     ('cl /nologo /EHsc /O2 /W3 /utf-8 /DUNICODE /D_UNICODE /D_WIN32_WINNT=0x0601 /Fe:"' + $uit + '" uitest.cpp ' +
-     '/link /MACHINE:' + $machine + ' ole32.lib oleaut32.lib user32.lib')
+     '/link /MACHINE:' + $machine + ' ole32.lib oleaut32.lib user32.lib'),
+    ('cl /nologo /EHsc /O2 /W3 /utf-8 /DUNICODE /D_UNICODE /D_WIN32_WINNT=0x0601 ' +
+     'OcspConfig.cpp OcspDbConfig.cpp "' + $cfgRes + '" ' +
+     '/link /SUBSYSTEM:WINDOWS /MACHINE:' + $machine + ' /OUT:"' + $cfg + '" ' +
+     'comdlg32.lib advapi32.lib user32.lib shell32.lib gdi32.lib')
 ) -join ' && '
 
 Write-Host "--- building $Arch"
 cmd /c $cmd
 if ($LASTEXITCODE -ne 0) { throw "build failed with exit code $LASTEXITCODE" }
 
-foreach ($f in @($dll, $uit)) {
+foreach ($f in @($dll, $uit, $cfg)) {
     if (-not (Test-Path $f)) { throw "missing output: $f" }
 }
 

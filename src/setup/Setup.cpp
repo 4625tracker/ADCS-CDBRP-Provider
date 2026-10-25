@@ -47,6 +47,7 @@ static const PayloadEntry kPayload[] = {
     { 1003, L"out\\" SETUP_ARCH_DIR L"\\OcspDbProvider.dll" },
     { 1004, L"out\\" SETUP_ARCH_DIR L"\\uitest.exe"         },
     { 1005, L"LICENSE.txt"          },
+    { 1006, L"out\\" SETUP_ARCH_DIR L"\\OcspConfig.exe"     },
 };
 
 static const int kPayloadCount = (int)(sizeof(kPayload) / sizeof(kPayload[0]));

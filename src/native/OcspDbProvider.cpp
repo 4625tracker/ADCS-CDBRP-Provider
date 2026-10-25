@@ -26,6 +26,7 @@
 #include <map>
 #include <vector>
 #include "resource.h"
+#include "OcspDbConfig.h"
 
 // ------------------------------------------------------------------ 常量
 
@@ -85,73 +86,9 @@ struct IOCSPRevInfoProviderManager : public IUnknown {
 };
 
 // ------------------------------------------------------------------ 路径 / 语言
-
-static std::wstring TrimTrailingSlash(std::wstring s)
-{
-    while (!s.empty() && (s.back() == L'\\' || s.back() == L'/')) s.pop_back();
-    return s;
-}
-
-static std::wstring JoinPath(const std::wstring &dir, const std::wstring &name)
-{
-    if (dir.empty()) return name;
-    std::wstring r = dir;
-    if (r.back() != L'\\') r += L'\\';
-    r += name;
-    return r;
-}
-
-static bool ReadRegString(HKEY root, const wchar_t *sub, const wchar_t *value, std::wstring &out)
-{
-    HKEY hk = NULL;
-    if (RegOpenKeyExW(root, sub, 0, KEY_READ, &hk) != ERROR_SUCCESS) return false;
-    DWORD type = 0, size = 0;
-    bool ok = false;
-    if (RegQueryValueExW(hk, value, NULL, &type, NULL, &size) == ERROR_SUCCESS &&
-        (type == REG_SZ || type == REG_EXPAND_SZ) && size > sizeof(wchar_t)) {
-        std::vector<wchar_t> buf(size / sizeof(wchar_t) + 1, 0);
-        if (RegQueryValueExW(hk, value, NULL, &type, (LPBYTE)buf.data(), &size) == ERROR_SUCCESS) {
-            std::wstring v(buf.data());
-            if (type == REG_EXPAND_SZ) {
-                std::vector<wchar_t> e(v.size() + MAX_PATH * 2, 0);
-                DWORD n = ExpandEnvironmentStringsW(v.c_str(), e.data(), (DWORD)e.size());
-                if (n > 0 && n <= e.size()) v.assign(e.data(), n - 1);
-            }
-            if (!v.empty()) { out = v; ok = true; }
-        }
-    }
-    RegCloseKey(hk);
-    return ok;
-}
-
-// 安装目录：环境变量 -> 注册表 -> %ProgramData%\OcspDbProvider -> 兜底常量
-static std::wstring ResolveInstallDir()
-{
-    wchar_t buf[MAX_PATH * 2];
-    DWORD n = GetEnvironmentVariableW(L"OCSPDBPROVIDER_DIR", buf, _countof(buf));
-    if (n > 0 && n < _countof(buf)) return TrimTrailingSlash(buf);
-
-    std::wstring reg;
-    if (ReadRegString(HKEY_LOCAL_MACHINE, REG_ROOT, L"InstallDir", reg))
-        return TrimTrailingSlash(reg);
-
-    n = GetEnvironmentVariableW(L"ProgramData", buf, _countof(buf));
-    if (n > 0 && n < _countof(buf)) return JoinPath(TrimTrailingSlash(buf), L"OcspDbProvider");
-    n = GetEnvironmentVariableW(L"ALLUSERSPROFILE", buf, _countof(buf));
-    if (n > 0 && n < _countof(buf)) return JoinPath(TrimTrailingSlash(buf), L"OcspDbProvider");
-
-    return L"C:\\ProgramData\\OcspDbProvider";
-}
-
-static const std::wstring &InstallDir()
-{
-    static const std::wstring kDir = ResolveInstallDir();
-    return kDir;
-}
-
-static std::wstring IniPath()  { return JoinPath(InstallDir(), L"provider.ini"); }
-static std::wstring LogPath()  { return JoinPath(InstallDir(), L"provider-native.log"); }
-static std::wstring DataDir()  { return JoinPath(InstallDir(), L"data"); }
+//
+// 安装目录、provider.ini 与每个 CA 的生效配置由 OcspDbConfig 提供，和 OcspConfig.exe
+// 共用同一份实现，避免两个程序对配置格式产生分歧。
 
 static std::wstring CaptureDir()
 {
@@ -161,26 +98,7 @@ static std::wstring CaptureDir()
     return InstallDir();
 }
 
-// 界面语言：默认跟随系统 UI 语言，可用 OCSPDBPROVIDER_LANG=zh|en 覆盖（便于测试）
-static bool IsZhUi()
-{
-    static int s_zh = -1;
-    if (s_zh < 0) {
-        s_zh = -2;
-        wchar_t v[16] = {0};
-        if (GetEnvironmentVariableW(L"OCSPDBPROVIDER_LANG", v, _countof(v)) > 0) {
-            if (v[0] == L'z' || v[0] == L'Z') s_zh = 1;
-            else if (v[0] == L'e' || v[0] == L'E') s_zh = 0;
-        }
-        if (s_zh < 0) s_zh = (PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_CHINESE) ? 1 : 0;
-    }
-    return s_zh != 0;
-}
-
-static const wchar_t *Tr(const wchar_t *zh, const wchar_t *en)
-{
-    return IsZhUi() ? zh : en;
-}
+static std::wstring LogPath() { return JoinPath(InstallDir(), L"provider-native.log"); }
 
 // ------------------------------------------------------------------ 小工具
 
@@ -316,211 +234,9 @@ static void SerialForms(const CERTTRANSBLOB *p, std::string &fwd, std::string &r
 }
 
 // ------------------------------------------------------------------ 配置模型
-
-// 单个 CA 的配置；-1 / 空串表示“沿用 [default]”
-struct CaConfig {
-    std::wstring snapshot;
-    int checkSeconds   = -1;
-    int validStatus    = -1;
-    int revokedStatus  = -1;
-    int unknownStatus  = -1;
-};
-
-// 合并后的生效配置
-struct Settings {
-    std::wstring snapshot;
-    int checkSeconds  = 2;
-    int validStatus   = 0;
-    int revokedStatus = 1;
-    int unknownStatus = 0;
-};
-
-static CRITICAL_SECTION g_cfgCs;
-static bool g_cfgCsInit = false;
-static bool g_cfgLoaded = false;
-static CaConfig g_defaults;
-static std::map<std::wstring, CaConfig> g_caConfigs;
-
-static std::wstring SafeFileName(const std::wstring &s)
-{
-    std::wstring out;
-    for (wchar_t c : s) {
-        if ((c >= L'A' && c <= L'Z') || (c >= L'a' && c <= L'z') ||
-            (c >= L'0' && c <= L'9') || c == L'-' || c == L'_' || c == L'.')
-            out.push_back(c);
-        else
-            out.push_back(L'_');
-    }
-    if (out.empty()) out = L"default";
-    return out;
-}
-
-static std::string ReadTextFileUtf8(const std::wstring &path)
-{
-    std::string text;
-    HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
-                           NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (h == INVALID_HANDLE_VALUE) return text;
-    char buf[65536];
-    DWORD read = 0;
-    while (ReadFile(h, buf, sizeof(buf), &read, NULL) && read > 0) text.append(buf, read);
-    CloseHandle(h);
-    return text;
-}
-
-static bool WriteTextFileUtf8(const std::wstring &path, const std::string &text)
-{
-    HANDLE h = CreateFileW(path.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
-                           FILE_ATTRIBUTE_NORMAL, NULL);
-    if (h == INVALID_HANDLE_VALUE) return false;
-    DWORD written = 0;
-    WriteFile(h, text.data(), (DWORD)text.size(), &written, NULL);
-    CloseHandle(h);
-    return written == text.size();
-}
-
-static void ApplyKey(CaConfig &cfg, const std::string &k, const std::string &v)
-{
-    if (k == "snapshot" && !v.empty()) {
-        wchar_t w[MAX_PATH * 2];
-        if (MultiByteToWideChar(CP_UTF8, 0, v.c_str(), -1, w, _countof(w)) > 0) cfg.snapshot = w;
-    } else if (k == "checkseconds")   cfg.checkSeconds  = atoi(v.c_str());
-    else if (k == "validstatus")      cfg.validStatus   = atoi(v.c_str());
-    else if (k == "revokedstatus")    cfg.revokedStatus = atoi(v.c_str());
-    else if (k == "unknownstatus")    cfg.unknownStatus = atoi(v.c_str());
-}
-
-// 配置文件是 UTF-8 的 key=value；[default] 或文件头的平铺键对所有 CA 生效，
-// [ca:<ca-id>] 只覆盖单个 CA。老的平铺格式（无分段）按 default 处理，保持向后兼容。
-static void LoadConfigLocked()
-{
-    g_defaults = CaConfig();
-    g_caConfigs.clear();
-    std::string text = ReadTextFileUtf8(IniPath());
-    if (text.empty()) return;
-
-    CaConfig *cur = &g_defaults;
-    size_t pos = 0;
-    while (pos <= text.size()) {
-        size_t nl = text.find('\n', pos);
-        std::string line = text.substr(pos, (nl == std::string::npos) ? std::string::npos : nl - pos);
-        pos = (nl == std::string::npos) ? text.size() + 1 : nl + 1;
-        while (!line.empty() && (line.back() == '\r' || line.back() == ' ' || line.back() == '\t')) line.pop_back();
-        if (line.empty() || line[0] == '#' || line[0] == ';') continue;
-        if (line[0] == '[' && line.back() == ']') {
-            std::string name = line.substr(1, line.size() - 2);
-            if (name == "default" || name.empty()) {
-                cur = &g_defaults;
-            } else if (name.compare(0, 3, "ca:") == 0) {
-                std::string ca = name.substr(3);
-                wchar_t w[MAX_PATH * 2];
-                if (MultiByteToWideChar(CP_UTF8, 0, ca.c_str(), -1, w, _countof(w)) > 0) {
-                    cur = &g_caConfigs[std::wstring(w)];
-                } else {
-                    cur = &g_defaults;
-                }
-            } else {
-                cur = NULL;      // 未知分段：忽略其内容
-            }
-            continue;
-        }
-        size_t eq = line.find('=');
-        if (eq == std::string::npos) continue;
-        std::string k = line.substr(0, eq), v = line.substr(eq + 1);
-        while (!k.empty() && (k.back() == ' ' || k.back() == '\t')) k.pop_back();
-        while (!v.empty() && (v.front() == ' ' || v.front() == '\t')) v.erase(v.begin());
-        if (cur) ApplyKey(*cur, k, v);
-    }
-}
-
-static void EnsureConfigLoadedLocked()
-{
-    if (g_cfgLoaded) return;
-    g_cfgLoaded = true;
-    LoadConfigLocked();
-}
-
-// 合并规则：CA 段 > [default] > 内置默认；快照缺省为 <install>\data\<safe-ca>.dat
-static Settings EffectiveFor(const std::wstring &caId)
-{
-    Settings s;
-    EnterCriticalSection(&g_cfgCs);
-    EnsureConfigLoadedLocked();
-
-    const CaConfig *d = &g_defaults;
-    std::map<std::wstring, CaConfig>::const_iterator it = g_caConfigs.find(caId);
-    const CaConfig *c = (it != g_caConfigs.end()) ? &it->second : NULL;
-
-    s.checkSeconds  = (c && c->checkSeconds  >= 0) ? c->checkSeconds  : (d->checkSeconds  >= 0 ? d->checkSeconds  : 2);
-    s.validStatus   = (c && c->validStatus   >= 0) ? c->validStatus   : (d->validStatus   >= 0 ? d->validStatus   : 0);
-    s.revokedStatus = (c && c->revokedStatus >= 0) ? c->revokedStatus : (d->revokedStatus >= 0 ? d->revokedStatus : 1);
-    s.unknownStatus = (c && c->unknownStatus >= 0) ? c->unknownStatus : (d->unknownStatus >= 0 ? d->unknownStatus : 0);
-
-    std::wstring snap = (c && !c->snapshot.empty()) ? c->snapshot : d->snapshot;
-    LeaveCriticalSection(&g_cfgCs);
-
-    if (snap.empty()) snap = JoinPath(DataDir(), SafeFileName(caId) + L".dat");
-    s.snapshot = snap;
-    if (s.checkSeconds < 0) s.checkSeconds = 0;
-    if (s.checkSeconds > 3600) s.checkSeconds = 3600;
-    return s;
-}
-
-static void WriteConfigFileLocked()
-{
-    std::string body;
-    body += "# OcspDbProvider - CA certificate database revocation provider\r\n";
-    body += "# [default] applies to every CA, [ca:<ca-id>] overrides one responder.\r\n";
-    body += "# snapshot is optional: the default is <install>\\data\\<safe-ca-id>.dat\r\n";
-    body += "[default]\r\n";
-
-    char num[64];
-    if (!g_defaults.snapshot.empty()) {
-        char utf8Path[MAX_PATH * 3] = {0};
-        WideCharToMultiByte(CP_UTF8, 0, g_defaults.snapshot.c_str(), -1, utf8Path, sizeof(utf8Path), NULL, NULL);
-        body += "snapshot="; body += utf8Path; body += "\r\n";
-    }
-    if (g_defaults.checkSeconds  >= 0) { sprintf_s(num, "%d", g_defaults.checkSeconds);  body += "checkseconds=";  body += num; body += "\r\n"; }
-    if (g_defaults.validStatus   >= 0) { sprintf_s(num, "%d", g_defaults.validStatus);   body += "validstatus=";   body += num; body += "\r\n"; }
-    if (g_defaults.revokedStatus >= 0) { sprintf_s(num, "%d", g_defaults.revokedStatus); body += "revokedstatus="; body += num; body += "\r\n"; }
-    if (g_defaults.unknownStatus >= 0) { sprintf_s(num, "%d", g_defaults.unknownStatus); body += "unknownstatus="; body += num; body += "\r\n"; }
-
-    for (std::map<std::wstring, CaConfig>::const_iterator it = g_caConfigs.begin(); it != g_caConfigs.end(); ++it) {
-        char caUtf8[MAX_PATH * 3] = {0};
-        WideCharToMultiByte(CP_UTF8, 0, it->first.c_str(), -1, caUtf8, sizeof(caUtf8), NULL, NULL);
-        body += "\r\n[ca:"; body += caUtf8; body += "]\r\n";
-        const CaConfig &c = it->second;
-        if (!c.snapshot.empty()) {
-            char utf8Path[MAX_PATH * 3] = {0};
-            WideCharToMultiByte(CP_UTF8, 0, c.snapshot.c_str(), -1, utf8Path, sizeof(utf8Path), NULL, NULL);
-            body += "snapshot="; body += utf8Path; body += "\r\n";
-        }
-        if (c.checkSeconds  >= 0) { sprintf_s(num, "%d", c.checkSeconds);  body += "checkseconds=";  body += num; body += "\r\n"; }
-        if (c.validStatus   >= 0) { sprintf_s(num, "%d", c.validStatus);   body += "validstatus=";   body += num; body += "\r\n"; }
-        if (c.revokedStatus >= 0) { sprintf_s(num, "%d", c.revokedStatus); body += "revokedstatus="; body += num; body += "\r\n"; }
-        if (c.unknownStatus >= 0) { sprintf_s(num, "%d", c.unknownStatus); body += "unknownstatus="; body += num; body += "\r\n"; }
-    }
-
-    if (!WriteTextFileUtf8(IniPath(), body)) {
-        LogLine(L"write ini failed: %lu", GetLastError());
-    }
-}
-
-// 保存单个 CA 的生效配置（写成该 CA 的独立分段）
-static bool SaveCaConfig(const std::wstring &caId, const Settings &st)
-{
-    EnterCriticalSection(&g_cfgCs);
-    EnsureConfigLoadedLocked();
-    CaConfig &c = g_caConfigs[caId];
-    c.snapshot      = st.snapshot;
-    c.checkSeconds  = st.checkSeconds;
-    c.validStatus   = st.validStatus;
-    c.revokedStatus = st.revokedStatus;
-    c.unknownStatus = st.unknownStatus;
-    WriteConfigFileLocked();
-    LeaveCriticalSection(&g_cfgCs);
-    return true;
-}
+//
+// CaConfig / Settings 以及 provider.ini 的读写实现在 OcspDbConfig.cpp，
+// 与独立配置工具 OcspConfig.exe 共用，保证两边对配置格式的理解一致。
 
 // ------------------------------------------------------------------ 快照
 
@@ -614,7 +330,7 @@ private:
     // 调用方必须持有 g_dbCs
     void EnsureFresh()
     {
-        Settings st = EffectiveFor(m_caId);
+        Settings st = ConfigEffectiveFor(m_caId);
         // 配置里的快照路径变了 -> 立刻重载
         if (st.snapshot != m_snapPath) {
             m_snapPath = st.snapshot;
@@ -923,6 +639,10 @@ LONG CRevInfoProvider::g_objects = 0;
 // ------------------------------------------------------------------ 配置界面（中英双语）
 
 // 当前状态文本（对话框里显示，也用于 GetStatus）
+//
+// 0 条记录是最常见、也最难从 MMC 里看出来的故障（快照路径不对 / 文件是空的 /
+// 同步任务没写成功），所以这里把「解析到的路径、文件是否存在、大小、行数」都摊开，
+// 让状态页本身就能定位问题。
 static std::wstring BuildStatusText(const std::wstring &caId)
 {
     Settings st;
@@ -935,25 +655,56 @@ static std::wstring BuildStatusText(const std::wstring &caId)
     WIN32_FILE_ATTRIBUTE_DATA fad;
     SYSTEMTIME stime;
     ZeroMemory(&stime, sizeof(stime));
-    if (GetFileAttributesExW(file.c_str(), GetFileExInfoStandard, &fad)) {
+    bool exists = GetFileAttributesExW(file.c_str(), GetFileExInfoStandard, &fad) != FALSE;
+    unsigned long long size = 0;
+    if (exists) {
+        size = ((unsigned long long)fad.nFileSizeHigh << 32) | fad.nFileSizeLow;
         FILETIME ftLocal;
         FileTimeToLocalFileTime(&fad.ftLastWriteTime, &ftLocal);
         FileTimeToSystemTime(&ftLocal, &stime);
     }
 
-    wchar_t buf[1024];
+    wchar_t buf[2048];
     if (IsZhUi()) {
         _snwprintf_s(buf, _countof(buf), _TRUNCATE,
-            L"CA：%s\r\n快照记录：%Iu 条\r\n最后加载：%s\r\n已应答查询：%ld 次\r\n快照文件时间：%04u-%02u-%02u %02u:%02u:%02u",
-            caId.empty() ? L"(未指定)" : caId.c_str(), count, loaded.c_str(), (long)g_queryCount,
+            L"CA：%s\r\n快照文件：%s\r\n"
+            L"文件状态：%s（%llu 字节）\r\n"
+            L"快照记录：%Iu 条\r\n最后加载：%s\r\n已应答查询：%ld 次\r\n"
+            L"快照文件时间：%04u-%02u-%02u %02u:%02u:%02u",
+            caId.empty() ? L"(未指定)" : caId.c_str(), file.c_str(),
+            exists ? L"存在" : L"不存在", size,
+            count, loaded.c_str(), (long)g_queryCount,
             stime.wYear, stime.wMonth, stime.wDay, stime.wHour, stime.wMinute, stime.wSecond);
     } else {
         _snwprintf_s(buf, _countof(buf), _TRUNCATE,
-            L"CA: %s\r\nSnapshot entries: %Iu\r\nLast loaded: %s\r\nQueries answered: %ld\r\nSnapshot file time: %04u-%02u-%02u %02u:%02u:%02u",
-            caId.empty() ? L"(not specified)" : caId.c_str(), count, loaded.c_str(), (long)g_queryCount,
+            L"CA: %s\r\nSnapshot file: %s\r\n"
+            L"File state: %s (%llu bytes)\r\n"
+            L"Snapshot entries: %Iu\r\nLast loaded: %s\r\nQueries answered: %ld\r\n"
+            L"Snapshot file time: %04u-%02u-%02u %02u:%02u:%02u",
+            caId.empty() ? L"(not specified)" : caId.c_str(), file.c_str(),
+            exists ? L"exists" : L"missing", size,
+            count, loaded.c_str(), (long)g_queryCount,
             stime.wYear, stime.wMonth, stime.wDay, stime.wHour, stime.wMinute, stime.wSecond);
     }
-    return buf;
+
+    std::wstring out = buf;
+    if (count == 0) {
+        const wchar_t *hint;
+        if (!exists)
+            hint = Tr(L"提示：该路径没有文件。检查 provider.ini 的 snapshot 设置，以及计划任务是否在写这个路径。",
+                      L"Hint: no file at that path. Check the snapshot setting in provider.ini and whether the scheduled task writes there.");
+        else if (size == 0)
+            hint = Tr(L"提示：文件存在但为 0 字节，同步任务没有写入任何内容。检查同步任务的历史记录。",
+                      L"Hint: the file exists but is empty. The sync task wrote nothing; check its history.");
+        else
+            hint = Tr(L"提示：文件有内容但没有可解析的行。每行需要「序列号<TAB>处置<TAB>吊销时间」；"
+                      L"请确认导出的确实是 certutil -view 的序列号格式。",
+                      L"Hint: the file has content but no parsable rows. Each line needs "
+                      L"serial<TAB>disposition<TAB>revokedWhen; check that the export is really certutil -view output.");
+        out += L"\r\n";
+        out += hint;
+    }
+    return out;
 }
 
 static void DumpDialogBmp(HWND hDlg, const std::wstring &path)
@@ -1157,7 +908,7 @@ static INT_PTR CALLBACK ConfigDlgProc(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp)
             st->revokedStatus = GetDlgItemInt(hDlg, IDC_EDIT_REVOKED,  NULL, FALSE);
             st->unknownStatus = GetDlgItemInt(hDlg, IDC_EDIT_UNKNOWN,  NULL, FALSE);
             if (st->checkSeconds < 0 || st->checkSeconds > 3600) st->checkSeconds = 2;
-            SaveCaConfig(ctx->caId, *st);
+            if (!ConfigSaveCa(ctx->caId, *st)) LogLine(L"write ini failed: %lu", GetLastError());
             DbForCA(ctx->caId).Reload();          // 让新设置立刻生效
             ctx->modified = TRUE;
             EndDialog(hDlg, IDOK);
@@ -1233,7 +984,7 @@ public:
         if (pOutConfig) { pOutConfig->cb = 0; pOutConfig->pb = NULL; }
 
         std::wstring caId = bstrCAConfigId ? bstrCAConfigId : L"";
-        Settings st = EffectiveFor(caId);
+        Settings st = ConfigEffectiveFor(caId);
         BOOL ok = ShowConfigDialog(hwndParent, FALSE, caId, st);
         if (pModified) *pModified = ok;
 
@@ -1264,7 +1015,7 @@ public:
         UNREFERENCED_PARAMETER(pCACert);
         UNREFERENCED_PARAMETER(pInConfig);
         std::wstring caId = bstrCAConfigId ? bstrCAConfigId : L"";
-        Settings st = EffectiveFor(caId);
+        Settings st = ConfigEffectiveFor(caId);
         ShowConfigDialog(hwndParent, TRUE, caId, st);
         LogLine(L"View(%s)", caId.c_str());
         return S_OK;
@@ -1434,15 +1185,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
         g_csInit = true;
         InitializeCriticalSection(&g_dbCs);
         g_dbCsInit = true;
-        InitializeCriticalSection(&g_cfgCs);
-        g_cfgCsInit = true;
         wchar_t path[MAX_PATH];
         g_hInst = hModule;
         if (GetModuleFileNameW(hModule, path, MAX_PATH)) g_dllPath = path;
         LogLine(L"provider DLL loaded: %s (install dir: %s)", g_dllPath.c_str(), InstallDir().c_str());
     } else if (reason == DLL_PROCESS_DETACH) {
         if (g_csInit) { LogLine(L"provider DLL unloaded"); DeleteCriticalSection(&g_cs); g_csInit = false; }
-        if (g_cfgCsInit) { DeleteCriticalSection(&g_cfgCs); g_cfgCsInit = false; }
         if (g_dbCsInit) { DeleteCriticalSection(&g_dbCs); g_dbCsInit = false; }
     }
     return TRUE;

@@ -96,6 +96,22 @@ the *Online Responder* MMC snap-in, or the same dialog without MMC:
 & "$env:ProgramData\OcspDbProvider\uitest.exe" config -ca 'SRV1\CORP-CA'
 ```
 
+For several CAs, use the dedicated editor — it lists every CA (from the responder and from
+`provider.ini`), edits one CA at a time and shows that CA's snapshot state:
+
+```powershell
+& "$env:ProgramData\OcspDbProvider\OcspConfig.exe"
+```
+
+Headless equivalents for scripting:
+
+```powershell
+$cfg = "$env:ProgramData\OcspDbProvider\OcspConfig.exe"
+& $cfg --dump
+& $cfg --set 'SRV1\CORP-CA' --snapshot 'C:\data\CORP-CA.dat' --check 2 --unknown 2
+& $cfg --remove 'SRV1\OLD-CA'
+```
+
 After editing the file by hand, restart the service:
 
 ```powershell

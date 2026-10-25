@@ -288,6 +288,7 @@ switch ($Mode) {
         Stop-OcspStack
         Copy-Item (Join-Path $RepoRoot "out\$Arch\OcspDbProvider.dll") $DllPath -Force
         Copy-Item (Join-Path $RepoRoot "out\$Arch\uitest.exe") (Join-Path $InstallDir 'uitest.exe') -Force
+        Copy-Item (Join-Path $RepoRoot "out\$Arch\OcspConfig.exe") (Join-Path $InstallDir 'OcspConfig.exe') -Force
         Copy-Item (Join-Path $PSScriptRoot 'sync.ps1') (Join-Path $InstallDir 'sync.ps1') -Force
         Write-Ok ($DllPath + '  ' + (Get-Item $DllPath).Length + ' B')
 

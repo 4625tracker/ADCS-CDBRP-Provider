@@ -131,6 +131,28 @@ unknownstatus=2     ; answer RFC 6960 "unknown" instead of "good"
 
 A flat file with no sections is also accepted (legacy 1.x layout) and applies to every CA.
 
+### Multi-CA configuration (GUI)
+
+`OcspConfig.exe` ships next to the provider and edits every CA in one place:
+
+```powershell
+& "$env:ProgramData\OcspDbProvider\OcspConfig.exe"
+```
+
+It lists the CAs found in the responder configuration and in `provider.ini`, lets you edit
+the snapshot path, cache seconds and the three status codes per CA, and shows the live state
+of that CA's snapshot (resolved path, whether the file exists, its size, parsable rows and
+modification time). Saving only touches that CA's `[ca:<id>]` section; removing one only
+drops that section.
+
+The same operations are scriptable:
+
+```powershell
+OcspConfig.exe --dump
+OcspConfig.exe --set CORP-A --snapshot C:\data\CORP-A.dat --unknown 2
+OcspConfig.exe --remove CORP-B
+```
+
 | Environment variable | Purpose |
 |---|---|
 | `OCSPDBPROVIDER_DIR` | Install directory (overrides the registry/ProgramData default) |
@@ -145,7 +167,7 @@ Resolution order for the install directory: `OCSPDBPROVIDER_DIR` → `HKLM\SOFTW
 ## Repository layout
 
 ```
-src/native/            provider DLL, resources, self-test harness
+src/native/            provider DLL, config model (shared), self-test harness, OcspConfig tool
 src/setup/             setup EXE: embedded payload, self-elevation, runs install.ps1
 src/legacy/managed/    earlier managed (.NET) prototype, unsupported
 scripts/               build, build-installer, install, uninstall, sync, test, release

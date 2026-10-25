@@ -154,3 +154,29 @@ cannot resolve resource filenames with non-ASCII characters), generates `setup_v
 and `Setup.rc`, and links with `/MT` so the setup needs no VC++ redistributable.
 `scripts/release.ps1` builds every architecture, writes `SHA256SUMS.txt` and can publish the
 GitHub release through `gh`.
+
+## 9. Configuration tool
+
+`OcspConfig.exe` (`src/native/OcspConfig.cpp`) is the multi-CA editor. It is a plain Win32
+dialog — no MMC, no COM, no elevation needed — and it shares the configuration model with
+the provider:
+
+| Concern | Where it lives | Used by |
+|---|---|---|
+| install dir / `provider.ini` path | `OcspDbConfig.cpp` | DLL and EXE |
+| `[default]` + `[ca:<id>]` parsing, merge rules | `OcspDbConfig.cpp` | DLL and EXE |
+| writing `provider.ini` | `OcspDbConfig.cpp` | DLL (Configure dialog) and EXE |
+| snapshot parsing / status | `OcspDbProvider.cpp` (`RevDb`) | DLL |
+| snapshot inspection for the editor | `OcspConfig.cpp` | EXE |
+
+Because both binaries compile the same `OcspDbConfig.cpp`, a section written by the tool is
+byte-for-byte the format the provider expects — there is no second parser to drift.
+
+The tool discovers CAs from two sources and shows which is which:
+
+- `HKLM\SYSTEM\CurrentControlSet\Services\OCSPSvc\Responder\*` — CAs configured in the responder
+- sections already present in `provider.ini`
+
+Selecting a row loads the CA's *effective* settings (after inheritance from `[default]`), so
+what you see is what the provider will use. Its headless modes (`--dump`, `--set`,
+`--remove`) make the same operations scriptable and are covered by `scripts/test.ps1`.

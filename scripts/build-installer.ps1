@@ -42,12 +42,13 @@ New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 # ------------------------------------------------------------------ 1. provider build
 $dll = Join-Path $RepoRoot "out\$Arch\OcspDbProvider.dll"
 $uit = Join-Path $RepoRoot "out\$Arch\uitest.exe"
-if (-not $SkipBuild -or -not (Test-Path $dll) -or -not (Test-Path $uit)) {
+$cfg = Join-Path $RepoRoot "out\$Arch\OcspConfig.exe"
+if (-not $SkipBuild -or -not (Test-Path $dll) -or -not (Test-Path $uit) -or -not (Test-Path $cfg)) {
     & (Join-Path $PSScriptRoot 'build.ps1') -Arch $Arch
 } else {
     Write-Host "using existing provider build: $dll"
 }
-foreach ($f in @($dll, $uit)) {
+foreach ($f in @($dll, $uit, $cfg)) {
     if (-not (Test-Path $f)) { throw "missing payload file: $f" }
 }
 
@@ -62,6 +63,7 @@ Copy-Item $uit                                       (Join-Path $payloadDir 'uit
 Copy-Item (Join-Path $RepoRoot 'scripts\install.ps1') (Join-Path $payloadDir 'install.ps1')        -Force
 Copy-Item (Join-Path $RepoRoot 'scripts\sync.ps1')    (Join-Path $payloadDir 'sync.ps1')           -Force
 Copy-Item (Join-Path $RepoRoot 'LICENSE')             (Join-Path $payloadDir 'LICENSE')            -Force
+Copy-Item (Join-Path $RepoRoot "out\$Arch\OcspConfig.exe") (Join-Path $payloadDir 'OcspConfig.exe') -Force
 Copy-Item (Join-Path $RepoRoot 'src\setup\setup.manifest') (Join-Path $stage 'setup.manifest')     -Force
 
 # ------------------------------------------------------------------ 3. generated version header
@@ -91,6 +93,7 @@ $rc = @(
     ('1003 RCDATA '     + (& $quote (Join-Path $payloadDir 'OcspDbProvider.dll'))),
     ('1004 RCDATA '     + (& $quote (Join-Path $payloadDir 'uitest.exe'))),
     ('1005 RCDATA '     + (& $quote (Join-Path $payloadDir 'LICENSE'))),
+    ('1006 RCDATA '     + (& $quote (Join-Path $payloadDir 'OcspConfig.exe'))),
     '',
     '1 VERSIONINFO',
     ('FILEVERSION '    + (($Version -replace '\.', ',') + ',0')),
