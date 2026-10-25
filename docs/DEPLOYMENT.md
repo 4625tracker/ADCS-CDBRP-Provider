@@ -29,7 +29,8 @@ What it does:
 3. copies the DLL plus `uitest.exe` and `sync.ps1` into `%ProgramData%\OcspDbProvider`;
 4. runs `regsvr32` and verifies `InprocServer32` points at the installed copy;
 5. grants `NETWORK SERVICE` read/execute on the install dir;
-6. migrates an existing 1.x configuration from `D:\NasPlayData\ocsp` if present;
+6. optionally migrates an existing 1.x configuration when `-MigrationSource <dir>` is given
+   (nothing is assumed by default, so no legacy path is baked into the tooling);
 7. writes `provider.ini` (never overwrites an existing one);
 8. creates the first snapshot and registers the scheduled task `OcspDbProvider-Sync-<ca>`.
 

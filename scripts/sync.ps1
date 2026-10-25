@@ -48,6 +48,11 @@ function ConvertTo-SafeName([string]$s) {
     return $name
 }
 
+# certutil needs HOST\CA-NAME; a bare CA name fails with RPC_S_SERVER_UNAVAILABLE (0x800706BA)
+if (-not [string]::IsNullOrEmpty($CA) -and $CA -notmatch '\\') {
+    $CA = $env:COMPUTERNAME + '\' + $CA
+}
+
 if ([string]::IsNullOrEmpty($Out)) {
     $Out = Join-Path $DataDir ((ConvertTo-SafeName $CA) + '.dat')
 }

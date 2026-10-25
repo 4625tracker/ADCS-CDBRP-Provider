@@ -8,8 +8,8 @@
 
 | Dimension | Before (1.x) | Now (2.x) |
 |---|---|---|
-| Install path | hard-coded `D:\NasPlayData\ocsp` | env var → registry → `%ProgramData%\OcspDbProvider` |
-| CA name | hard-coded `NAS-Monitor-CA` | configured per CA (`[ca:<ca-id>]`), auto-detected on install |
+| Install path | hard-coded to one absolute directory | env var → registry → `%ProgramData%\OcspDbProvider` |
+| CA name | hard-coded in the source | configured per CA (`[ca:<ca-id>]`), auto-detected on install |
 | CA count | one global snapshot | one snapshot + status mapping per CA |
 | UI language | Chinese only | English + Simplified Chinese, follows the system, overridable |
 | Architecture | x64 only | x64 / x86 / ARM64 |
@@ -53,9 +53,8 @@ Notes:
 
 ## 4. Migration from 1.x
 
-`scripts/install.ps1` looks for the legacy directory (default `D:\NasPlayData\ocsp`, override
-with `-MigrationSource`) and, if `provider.ini` / `revdb.dat` exist and the new install dir
-has no configuration yet, it:
+Pass `-MigrationSource <dir>` to `scripts/install.ps1` and it will look there for
+`provider.ini` / `revdb.dat`; if the new install dir has no configuration yet it:
 
 1. copies `revdb.dat` to `%ProgramData%\OcspDbProvider\data\revdb.dat`;
 2. carries over `checkseconds` / `validstatus` / `revokedstatus` / `unknownstatus`;
@@ -63,6 +62,11 @@ has no configuration yet, it:
 
 Legacy flat configuration files (no sections) keep working unchanged: flat keys are treated
 as `[default]`, which applies to every CA. That is the 1.x single-CA behaviour.
+
+```powershell
+# import an existing 1.x installation (point -MigrationSource at its directory)
+pwsh -File scripts/install.ps1 -Mode install -MigrationSource 'D:\old-provider-dir'
+```
 
 ## 5. Behavioural differences vs the built-in CRL provider
 

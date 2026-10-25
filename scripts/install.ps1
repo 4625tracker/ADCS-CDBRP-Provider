@@ -51,8 +51,9 @@ param(
     # Remove the install directory during -Mode uninstall
     [switch]$RemoveFiles,
 
-    # Legacy provider directory to migrate a snapshot/config from
-    [string]$MigrationSource = 'D:\NasPlayData\ocsp'
+    # Optional: existing 1.x provider directory to migrate a snapshot/config from.
+    # Nothing is assumed by default; pass it explicitly, e.g. -MigrationSource 'D:\old\ocsp'
+    [string]$MigrationSource = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -116,6 +117,14 @@ function Resolve-CA {
     throw ("multiple CA responder configs found: " + ($cas -join ', ') + ". Pass -CAConfig explicitly.")
 }
 
+# The registry key is the bare CA name, but certutil needs HOST\CA-NAME; a bare name fails
+# with RPC_S_SERVER_UNAVAILABLE (0x800706BA).
+function Get-CaConfigString([string]$ca) {
+    if ([string]::IsNullOrEmpty($ca)) { return '' }
+    if ($ca -match '\\') { return $ca }
+    return ($env:COMPUTERNAME + '\' + $ca)
+}
+
 function Stop-OcspStack {
     if (Get-Service $ServiceName -ErrorAction SilentlyContinue) {
         Stop-Service $ServiceName -Force -ErrorAction SilentlyContinue
@@ -175,7 +184,11 @@ function Write-Ini([string]$ca) {
 }
 
 function Invoke-Migration {
-    if (-not (Test-Path $MigrationSource)) { return }
+    if ([string]::IsNullOrEmpty($MigrationSource)) { return }
+    if (-not (Test-Path -LiteralPath $MigrationSource)) {
+        Write-Warn2 ("migration source not found: " + $MigrationSource)
+        return
+    }
     $legacyIni = Join-Path $MigrationSource 'provider.ini'
     $legacySnap = Join-Path $MigrationSource 'revdb.dat'
     if (-not (Test-Path $legacyIni) -and -not (Test-Path $legacySnap)) { return }
@@ -254,10 +267,11 @@ switch ($Mode) {
         if (-not (Test-Admin)) { throw 'install requires an elevated (administrator) PowerShell.' }
 
         $ca = Resolve-CA
+        $caConfig = Get-CaConfigString $ca
         if ([string]::IsNullOrEmpty($ca)) {
             Write-Warn2 'no OCSP responder CA found; snapshot must be produced manually (see -Mode sync -CAConfig).'
         } else {
-            Write-Ok ("CA config: " + $ca)
+            Write-Ok ("CA config: " + $caConfig)
         }
 
         Write-Step 'build'
@@ -291,11 +305,14 @@ switch ($Mode) {
         Write-Ok 'NETWORK SERVICE RX granted on install dir'
 
         Invoke-Migration
-        Write-Ini $ca
+        Write-Ini $caConfig
 
-        if (-not [string]::IsNullOrEmpty($ca)) {
-            try { Invoke-Sync $ca } catch { Write-Warn2 ("snapshot not generated: " + $_.Exception.Message) }
-            Register-Task $ca
+        if (-not [string]::IsNullOrEmpty($caConfig)) {
+            try { Invoke-Sync $caConfig } catch { Write-Warn2 ("snapshot not generated: " + $_.Exception.Message) }
+            Register-Task $caConfig
+        }
+        if ([string]::IsNullOrEmpty($MigrationSource)) {
+            Write-Host '    (no -MigrationSource given: existing 1.x config was not imported)'
         }
 
         Start-OcspStack
@@ -441,13 +458,15 @@ switch ($Mode) {
 
     'sync' {
         $ca = Resolve-CA
-        Invoke-Sync $ca
+        if ([string]::IsNullOrEmpty($ca)) { throw 'no CA responder config found; pass -CAConfig' }
+        Invoke-Sync (Get-CaConfigString $ca)
     }
 
     'selftest' {
         $uit = Join-Path $InstallDir 'uitest.exe'
         if (-not (Test-Path $uit)) { throw "uitest.exe not found in $InstallDir (run -Mode install)" }
         $ca = Resolve-CA
+        # The responder hands over the registry key name (bare CA name), so test with that
         if ([string]::IsNullOrEmpty($ca)) { & $uit info } else { & $uit info -ca $ca }
         if ($LASTEXITCODE -ne 0) { throw "selftest failed (exit $LASTEXITCODE)" }
     }
