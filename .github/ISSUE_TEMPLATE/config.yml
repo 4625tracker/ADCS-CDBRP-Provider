@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/4625tracker/ADCS-CDBRP-Provider/security/advisories/new
+    about: Report security problems privately. Please do not open a public issue for them.
+  - name: Deployment, configuration and troubleshooting
+    url: https://github.com/4625tracker/ADCS-CDBRP-Provider/blob/main/docs/DEPLOYMENT.md
+    about: Install, activate, uninstall, multi-CA configuration, rollback, and what to check when the status page shows 0 entries.
+  - name: Build, tests and code layout
+    url: https://github.com/4625tracker/ADCS-CDBRP-Provider/blob/main/CONTRIBUTING.md
+    about: How to build, how the 20 self checks work, and the rules that keep deployed systems working.

@@ -265,6 +265,24 @@ unknownstatus=2
 
 详见 [docs/REVERSE-ENGINEERING.md](docs/REVERSE-ENGINEERING.md)。
 
+## 参与 / 安全 / 反馈
+
+| 想做什么 | 去哪 |
+|---|---|
+| 搭建、激活、多 CA 配置、排查「状态页显示 0 条」 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
+| 参与开发（构建、20 项自检、改动红线） | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| 报告安全漏洞 | [SECURITY.md](SECURITY.md) —— **不要开公开 issue**，用 Security → Report a vulnerability |
+| 报 bug / 提需求 | [新建 issue](https://github.com/4625tracker/ADCS-CDBRP-Provider/issues/new/choose)，模板会要求贴状态页输出 |
+
+报 bug 时最有用的两条命令：
+
+```powershell
+& "$env:ProgramData\OcspDbProvider\uitest.exe" info -ca '<CA 名>'
+& "$env:ProgramData\OcspDbProvider\OcspConfig.exe" --dump
+```
+
+第一条会打印提供程序**真正解析到的快照路径**、文件是否存在、字节数和可解析行数 —— 绝大多数「0 条」的问题看这一行就能定位。
+
 ## 许可
 
 [MIT](LICENSE)。仓库不包含任何微软二进制文件。

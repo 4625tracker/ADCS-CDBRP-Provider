@@ -1,0 +1,68 @@
+name: Feature request
+description: Propose a capability, a configuration option or a documentation improvement.
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Useful proposals start from a problem, not from a solution. Tell me what you are
+        trying to do and what gets in the way; I will worry about the shape of the code.
+
+        Two constraints worth knowing before you write:
+
+        - the provider runs **in-process in `ocspsvc.exe`** on the OCSP hot path, so anything
+          slow, interactive or network-bound cannot go there;
+        - the **CLSID, ProgID, `provider.ini` and snapshot formats are contracts** — a design
+          that breaks an existing deployment needs a migration story.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to accomplish, and what makes it hard today?
+      placeholder: |
+        We run four CAs on one responder and need each one's snapshot refreshed on a different
+        schedule, but the task is registered per install rather than per CA.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like to happen
+      description: Describe the behaviour you want, and roughly where it belongs (provider, tool, installer, docs).
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: Workarounds you tried, or why the obvious approach does not fit.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Provider behaviour (OCSP answers, caching, snapshot reload)
+        - Configuration (provider.ini, per-CA settings)
+        - Configuration tool (OcspConfig.exe)
+        - Installer / deployment / scheduled task
+        - Documentation
+        - Build, tests or CI
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues and the documentation first.
+          required: true
+        - label: I understand this is a spare-time project and there is no committed timeline.
+          required: true

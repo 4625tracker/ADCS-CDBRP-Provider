@@ -1,0 +1,111 @@
+name: Bug report
+description: Something did not work — install, configuration, a wrong OCSP answer, a crash.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Two things make triage much faster:
+
+        - the **status page** output, which shows the snapshot path the provider really
+          resolved, whether the file exists, its size and how many rows parsed;
+        - the tail of `provider-native.log`.
+
+        ```powershell
+        & "$env:ProgramData\OcspDbProvider\uitest.exe" info -ca '<CA name>'
+        & "$env:ProgramData\OcspDbProvider\OcspConfig.exe" --dump
+        Get-Content "$env:ProgramData\OcspDbProvider\provider-native.log" -Tail 20
+        ```
+
+        For a security problem, please stop here and use the private advisory link instead.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, what you got, and whether other certificates are affected.
+      placeholder: |
+        Revoked a certificate at 14:02, OCSP still returns good at 14:20.
+        Expected revocation within ~1 minute.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to reproduce
+      description: Concrete steps, in order. If it only happens on a fresh install, say so.
+      placeholder: |
+        1. install with ADCS-CDBRP-Provider-Setup-<version>-x64.exe
+        2. -Mode activate
+        3. revoke a certificate in the CA console
+        4. query with ...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Provider version
+      description: File version of OcspDbProvider.dll, or the setup version you ran.
+      placeholder: "2.1.0.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: arch
+    attributes:
+      label: Architecture and OS
+      options:
+        - Windows Server 2022 x64
+        - Windows Server 2019 x64
+        - Windows Server 2016 x64
+        - Windows Server 2012 R2 x64
+        - Windows 10 / 11 x64
+        - x86 (32-bit Windows)
+        - ARM64
+        - Other (say which in the description)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: responder
+    attributes:
+      label: How the responder is deployed
+      options:
+        - Standalone OCSP responder (OCSPSvc) answering from the Online Responder MMC
+        - Behind IIS / OCSP ISAPI, default port 80
+        - Behind IIS / OCSP ISAPI, other port
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: status
+    attributes:
+      label: Status page and --dump output
+      description: Paste the output of the three commands above. Paths are fine; remove anything you consider sensitive.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Event log entries (Application log, sources OnlineResponder / Application Error), MMC behaviour, whether restarting OCSPSvc changes anything.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I am on the latest release (or on a build of `main` and I said which commit).
+          required: true
+        - label: I did not include private keys, passwords or unredacted certificate serials.
+          required: true
+        - label: This is not a security vulnerability (those go to the private advisory link).
+          required: true
