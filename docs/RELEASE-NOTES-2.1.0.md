@@ -52,6 +52,21 @@ CORP-B                       both     2      0      1        7      1       C:\P
 
 ## 修复
 
+以下都是这次在真实服务器上部署时暴露出来的：
+
+- **`DllRegisterServer` 曾把默认安装目录写进注册表**。注册表还没有 `InstallDir` 值时它退回
+  `%ProgramData%\OcspDbProvider`，于是把「猜出来的默认值」写成了事实，之后一直指向那个空目录 ——
+  这就是状态页显示 0 条的直接原因。现在以 DLL 自身所在目录为准，安装脚本也会显式写入并校验。
+- **升级时旧 DLL 被 `ocspsvc.exe` / 打开的 MMC 占用，复制失败**。现在安装脚本会自动把旧 DLL
+  改名挪开再放新的（重命名不受文件映射影响），并在下一次加载时生效。
+- **`sync.ps1` 在 Windows PowerShell 5.1 上崩溃**：用了只有 PowerShell 7 才有的
+  `ProcessStartInfo.ArgumentList`（5.1 上为 `$null`），导致快照一直没生成。
+- **`install.ps1` 在服务已停止时被中断**：`Stop-WebAppPool` 会抛非终止错误，而脚本开了
+  `$ErrorActionPreference='Stop'`，整条安装流程被提前打断。
+- **`regsvr32` 在部分主机上不返回退出码**，导致安装误判失败；改为以 `InprocServer32` 和
+  `InstallDir` 的注册表值为准，`regsvr32` 只作参考。
+- 计划任务名与快照文件名改用裸 CA 名（之前用「主机名\CA」，会生成
+  `FTP____NAS-Monitor-CA` 这类名字，且与提供程序按 CA id 推导的默认路径不一致）。
 - `OcspConfig.exe` 的 `--dump` 输出在重定向到文件时出现 `\r\r\n`（stdout 文本模式重复翻译换行）。
 
 ## 升级说明

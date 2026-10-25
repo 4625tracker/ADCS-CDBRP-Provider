@@ -77,7 +77,9 @@ if (-not [string]::IsNullOrEmpty($CA)) { $viewArgs = @('-view', '-silent', '-con
 Write-SyncLog ("certutil " + ($viewArgs -join ' '))
 $psi = [System.Diagnostics.ProcessStartInfo]::new()
 $psi.FileName = $CertUtil
-foreach ($a in $viewArgs) { [void]$psi.ArgumentList.Add($a) }
+# ArgumentList does not exist on Windows PowerShell 5.1 (.NET Framework), where it is $null,
+# so build a quoted argument string instead.
+$psi.Arguments = ($viewArgs | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }) -join ' '
 $psi.RedirectStandardOutput = $true
 $psi.RedirectStandardError = $true
 $psi.UseShellExecute = $false

@@ -60,6 +60,7 @@ $ErrorActionPreference = 'Stop'
 
 $RepoRoot   = Split-Path -Parent $PSScriptRoot
 $ProviderCLSID = '{7B0C4B1E-93A1-4C0F-9E52-0D2A6A5B41C9}'
+$RegRoot       = 'SOFTWARE\OcspDbProvider'
 $BuiltinCLSID  = '{4956d17f-88fd-4198-b287-1e6e65883b19}'   # ocsprevp.dll (CRL)
 $ResponderRoot = 'HKLM:\SYSTEM\CurrentControlSet\Services\OCSPSvc\Responder'
 $ServiceName   = 'OCSPSvc'
@@ -130,15 +131,19 @@ function Stop-OcspStack {
         Stop-Service $ServiceName -Force -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 2
     }
-    if (Get-Command Stop-WebAppPool -ErrorAction SilentlyContinue) {
+    # WebAdministration throws a non-terminating error when the pool is already stopped;
+    # with $ErrorActionPreference = 'Stop' that would abort the whole install, so isolate it.
+    try {
         Import-Module WebAdministration -ErrorAction SilentlyContinue
-        Stop-WebAppPool -Name $PoolName -ErrorAction SilentlyContinue
+        if (Get-Command Stop-WebAppPool -ErrorAction SilentlyContinue) {
+            try { Stop-WebAppPool -Name $PoolName -ErrorAction Stop } catch { }
+        }
         Get-CimInstance Win32_Process -Filter "Name='w3wp.exe'" -ErrorAction SilentlyContinue | ForEach-Object {
             if ($_.CommandLine -match [regex]::Escape($PoolName)) {
                 Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
             }
         }
-    }
+    } catch { }
 }
 
 function Start-OcspStack {
@@ -146,11 +151,13 @@ function Start-OcspStack {
         Start-Service $ServiceName -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 2
     }
-    if (Get-Command Start-WebAppPool -ErrorAction SilentlyContinue) {
+    try {
         Import-Module WebAdministration -ErrorAction SilentlyContinue
-        Start-WebAppPool -Name $PoolName -ErrorAction SilentlyContinue
+        if (Get-Command Start-WebAppPool -ErrorAction SilentlyContinue) {
+            try { Start-WebAppPool -Name $PoolName -ErrorAction Stop } catch { }
+        }
         Start-Sleep -Seconds 3
-    }
+    } catch { }
 }
 
 function Get-ProviderClsid([string]$ca) {
@@ -224,15 +231,16 @@ function Invoke-Migration {
     Write-Ok ("config migrated -> " + $IniPath)
 }
 
-function Invoke-Sync([string]$ca) {
+function Invoke-Sync([string]$caConfig, [string]$caBare) {
     Write-Step 'snapshot'
     $syncScript = Join-Path $PSScriptRoot 'sync.ps1'
-    $out = Join-Path $DataDir ((ConvertTo-SafeName $ca) + '.dat')
-    # Invoke in-process (same PowerShell session) so no specific host executable is assumed
-    if ([string]::IsNullOrEmpty($ca)) {
+    # The snapshot is named after the bare CA name: the provider derives its default path
+    # from the CA id the responder hands it (which is the bare name), so the two must agree.
+    $out = Join-Path $DataDir ((ConvertTo-SafeName $caBare) + '.dat')
+    if ([string]::IsNullOrEmpty($caConfig)) {
         & $syncScript -Out $out -DataDir $DataDir
     } else {
-        & $syncScript -CA $ca -Out $out -DataDir $DataDir
+        & $syncScript -CA $caConfig -Out $out -DataDir $DataDir
     }
     if (Test-Path $out) {
         $rows = (Get-Content $out | Where-Object { $_ -and $_[0] -ne '#' }).Count
@@ -240,15 +248,15 @@ function Invoke-Sync([string]$ca) {
     }
 }
 
-function Register-Task([string]$ca) {
+function Register-Task([string]$caConfig, [string]$caBare) {
     $taskName = 'OcspDbProvider-Sync'
-    if (-not [string]::IsNullOrEmpty($ca)) { $taskName += '-' + (ConvertTo-SafeName $ca) }
+    if (-not [string]::IsNullOrEmpty($caBare)) { $taskName += '-' + (ConvertTo-SafeName $caBare) }
     Write-Step "scheduled refresh: $taskName (every minute, SYSTEM)"
 
     $syncScript = Join-Path $InstallDir 'sync.ps1'
-    $out = Join-Path $DataDir ((ConvertTo-SafeName $ca) + '.dat')
+    $out = Join-Path $DataDir ((ConvertTo-SafeName $caBare) + '.dat')
     $argLine = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $syncScript + '" -Out "' + $out + '" -DataDir "' + $DataDir + '"'
-    if (-not [string]::IsNullOrEmpty($ca)) { $argLine += ' -CA "' + $ca + '"' }
+    if (-not [string]::IsNullOrEmpty($caConfig)) { $argLine += ' -CA "' + $caConfig + '"' }
 
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
     $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argLine
@@ -286,7 +294,29 @@ switch ($Mode) {
 
         # The DLL may be loaded by the running responder; stop it before replacing the file.
         Stop-OcspStack
-        Copy-Item (Join-Path $RepoRoot "out\$Arch\OcspDbProvider.dll") $DllPath -Force
+        $newDll = Join-Path $RepoRoot "out\$Arch\OcspDbProvider.dll"
+        $replaced = $false
+        for ($attempt = 0; $attempt -lt 3 -and -not $replaced; $attempt++) {
+            try {
+                Copy-Item $newDll $DllPath -Force -ErrorAction Stop
+                if ((Get-Item $DllPath).Length -eq (Get-Item $newDll).Length) { $replaced = $true }
+            } catch {
+                # Upgrade path: a responder or an open MMC snap-in still has the old DLL mapped,
+                # which makes the file unwritable. Renaming works even then, and the next process
+                # that loads the DLL picks up the new one.
+                $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+                $parked = "$DllPath.locked-$stamp-$attempt"
+                if (Test-Path $DllPath) {
+                    try {
+                        Move-Item $DllPath $parked -Force -ErrorAction Stop
+                        Write-Warn2 ("old DLL was in use; parked as " + (Split-Path $parked -Leaf))
+                    } catch {
+                        Start-Sleep -Milliseconds 700
+                    }
+                }
+            }
+        }
+        if (-not $replaced) { throw "cannot replace $DllPath (still in use after 3 attempts)" }
         Copy-Item (Join-Path $RepoRoot "out\$Arch\uitest.exe") (Join-Path $InstallDir 'uitest.exe') -Force
         Copy-Item (Join-Path $RepoRoot "out\$Arch\OcspConfig.exe") (Join-Path $InstallDir 'OcspConfig.exe') -Force
         Copy-Item (Join-Path $PSScriptRoot 'sync.ps1') (Join-Path $InstallDir 'sync.ps1') -Force
@@ -294,10 +324,29 @@ switch ($Mode) {
 
         Write-Step 'register COM (regsvr32)'
         & regsvr32.exe /s $DllPath
-        if ($LASTEXITCODE -ne 0) { throw "regsvr32 failed (exit $LASTEXITCODE) - run elevated" }
+        $regsvrExit = $LASTEXITCODE
+        # The registry value is authoritative: regsvr32 is advisory here because on some
+        # hosts it does not report an exit code (and re-registering the same path is a no-op).
         $ip = Get-ItemProperty ('HKLM:\SOFTWARE\Classes\CLSID\' + $ProviderCLSID + '\InprocServer32') -ErrorAction SilentlyContinue
-        if (-not $ip -or $ip.'(default)' -ne $DllPath) { throw "InprocServer32 mismatch: $($ip.'(default)')" }
+        if (-not $ip -or $ip.'(default)' -ne $DllPath) {
+            $detail = if ($null -ne $regsvrExit) { "regsvr32 exit=$regsvrExit; " } else { '' }
+            throw ("COM registration check failed: ${detail}InprocServer32=" + $(if ($ip) { $ip.'(default)' } else { '(missing)' }))
+        }
+        if ($null -ne $regsvrExit -and $regsvrExit -ne 0) {
+            Write-Warn2 ("regsvr32 reported exit $regsvrExit but InprocServer32 is correct; continuing")
+        }
         Write-Ok ("InprocServer32 = " + $ip.'(default)' + "  ThreadingModel=" + $ip.ThreadingModel)
+
+        # Record the install directory explicitly: the DLL also writes it from its own
+        # location during DllRegisterServer, but regsvr32 can be a no-op on some hosts
+        # (it is a GUI binary and may not report a result), so do not depend on it.
+        New-Item -Path ('HKLM:\' + $RegRoot) -Force | Out-Null
+        Set-ItemProperty -Path ('HKLM:\' + $RegRoot) -Name 'InstallDir' -Value $InstallDir -Type String
+        $recorded = (Get-ItemProperty ('HKLM:\' + $RegRoot) -Name 'InstallDir' -ErrorAction SilentlyContinue).InstallDir
+        if ($recorded -ne $InstallDir) {
+            throw "InstallDir registry value is '$recorded', expected '$InstallDir'"
+        }
+        Write-Ok ("InstallDir = " + $recorded)
 
         Write-Step 'permissions'
         foreach ($p in @($InstallDir, $DataDir)) {
@@ -306,11 +355,11 @@ switch ($Mode) {
         Write-Ok 'NETWORK SERVICE RX granted on install dir'
 
         Invoke-Migration
-        Write-Ini $caConfig
+        Write-Ini $ca
 
         if (-not [string]::IsNullOrEmpty($caConfig)) {
-            try { Invoke-Sync $caConfig } catch { Write-Warn2 ("snapshot not generated: " + $_.Exception.Message) }
-            Register-Task $caConfig
+            try { Invoke-Sync $caConfig $ca } catch { Write-Warn2 ("snapshot not generated: " + $_.Exception.Message) }
+            Register-Task $caConfig $ca
         }
         if ([string]::IsNullOrEmpty($MigrationSource)) {
             Write-Host '    (no -MigrationSource given: existing 1.x config was not imported)'
@@ -460,7 +509,7 @@ switch ($Mode) {
     'sync' {
         $ca = Resolve-CA
         if ([string]::IsNullOrEmpty($ca)) { throw 'no CA responder config found; pass -CAConfig' }
-        Invoke-Sync (Get-CaConfigString $ca)
+        Invoke-Sync (Get-CaConfigString $ca) $ca
     }
 
     'selftest' {

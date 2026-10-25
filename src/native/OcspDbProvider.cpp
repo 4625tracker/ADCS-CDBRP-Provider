@@ -1245,12 +1245,21 @@ extern "C" HRESULT WINAPI DllRegisterServer(void)
         RegCloseKey(hk);
     }
 
-    // 让 provider 自己能定位安装目录（regsvr32 之后即使挪动机器也不用改代码）
+    // 让 provider 自己能定位安装目录。
+    //
+    // 这里必须用 DLL 自己的目录，不能用 InstallDir()：后者在注册表还没有这个值时
+    // 会退回 %ProgramData%\OcspDbProvider，于是把错误的默认值写进注册表，之后
+    // 解析就一直指向那个空目录（快照 0 条）。DLL 所在目录才是权威答案。
     if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, REG_ROOT, 0, NULL, 0, KEY_WRITE, NULL, &hk, NULL) == ERROR_SUCCESS) {
         std::wstring dir = InstallDir();
+        if (!g_dllPath.empty()) {
+            size_t slash = g_dllPath.find_last_of(L"\\/");
+            if (slash != std::wstring::npos) dir = TrimTrailingSlash(g_dllPath.substr(0, slash));
+        }
         RegSetValueExW(hk, L"InstallDir", 0, REG_SZ, (const BYTE *)dir.c_str(),
                        (DWORD)((dir.size() + 1) * sizeof(wchar_t)));
         RegCloseKey(hk);
+        LogLine(L"DllRegisterServer: InstallDir=%s", dir.c_str());
     }
     return S_OK;
 }
