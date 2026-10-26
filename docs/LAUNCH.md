@@ -41,6 +41,9 @@
 
 ## 3. 英文：Show HN（技术切入）
 
+> **成稿见 [SHOW-HN.md](SHOW-HN.md)** —— 标题、可直接粘贴的第一条评论、九个预判问答、
+> 发帖时机与规矩。下面是早期草稿，保留仅作参考。
+
 标题候选：
 
 - `Show HN: OCSP provider that reads the AD CS CA database instead of the CRL`
