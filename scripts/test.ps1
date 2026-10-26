@@ -51,9 +51,17 @@ function Check([string]$name, [bool]$ok, [string]$detail = '') {
 function Invoke-Uitest([string]$argLine) {
     $exe = Join-Path $RepoRoot ("out\$Arch\uitest.exe")
     $cmd = '"{0}" {1} -dll "{2}" -ca "TEST\CA" > "{3}" 2>&1' -f $exe, $argLine, $Dll, $LogFile
-    cmd /c $cmd | Out-Null
-    if (-not (Test-Path $LogFile)) { return '' }
-    return (Get-Content $LogFile -Encoding UTF8 -Raw)
+    # A freshly built unsigned exe can be locked by antivirus for a few seconds; cmd then
+    # writes "Access is denied." into the log and the assertion fails for no real reason.
+    for ($attempt = 1; $attempt -le 6; $attempt++) {
+        if (Test-Path $LogFile) { Remove-Item $LogFile -Force -ErrorAction SilentlyContinue }
+        cmd /c $cmd | Out-Null
+        if (-not (Test-Path $LogFile)) { Start-Sleep -Milliseconds 400; continue }
+        $text = Get-Content $LogFile -Encoding UTF8 -Raw
+        if ($text -match 'Access is denied|cannot find the file') { Start-Sleep -Milliseconds 400; continue }
+        return $text
+    }
+    return ''
 }
 
 # ------------------------------------------------------------------ build
@@ -149,10 +157,19 @@ $dumpFile = Join-Path $WorkDir 'cfg-dump.txt'
 
 function Invoke-Cfg([string[]]$argv) {
     # OcspConfig is a GUI-subsystem binary: cmd /c would return before it finished, so wait
-    # for the process and let Start-Process own the redirection handles.
-    $p = Start-Process -FilePath $cfgExe -ArgumentList $argv -NoNewWindow -Wait -PassThru `
-         -RedirectStandardOutput $dumpFile -RedirectStandardError "$dumpFile.err"
-    if (Test-Path $dumpFile) { return (Get-Content $dumpFile -Encoding UTF8 -Raw) }
+    # for the process and let Start-Process own the redirection handles. Same antivirus-lock
+    # retry as Invoke-Uitest, because Start-Process throws instead of writing a log.
+    for ($attempt = 1; $attempt -le 6; $attempt++) {
+        try {
+            $null = Start-Process -FilePath $cfgExe -ArgumentList $argv -NoNewWindow -Wait -PassThru `
+                    -RedirectStandardOutput $dumpFile -RedirectStandardError "$dumpFile.err" -ErrorAction Stop
+            if (Test-Path $dumpFile) { return (Get-Content $dumpFile -Encoding UTF8 -Raw) }
+            return ''
+        } catch {
+            if ($attempt -eq 6) { throw }
+            Start-Sleep -Milliseconds 400
+        }
+    }
     return ''
 }
 

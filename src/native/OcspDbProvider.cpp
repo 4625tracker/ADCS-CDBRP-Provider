@@ -21,6 +21,7 @@
 #include <objbase.h>
 #include <oaidl.h>
 #include <commdlg.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <string>
 #include <map>
@@ -57,6 +58,14 @@ struct RevStatusInfo {
     DWORD    dwRevocationReason;
 };
 #pragma pack(pop)
+
+// 布局一旦漂移，客户端看到的是 "Bad time value"，而代码一行都没错。用编译期断言钉死。
+static_assert(sizeof(RevStatusInfo) == 40, "RevStatusInfo must stay 40 bytes (packed)");
+static_assert(offsetof(RevStatusInfo, ftThisUpdate)       == 4,  "layout drift: ftThisUpdate");
+static_assert(offsetof(RevStatusInfo, ftNextUpdate)       == 12, "layout drift: ftNextUpdate");
+static_assert(offsetof(RevStatusInfo, ftNextPublish)      == 20, "layout drift: ftNextPublish");
+static_assert(offsetof(RevStatusInfo, ftRevocationDate)   == 28, "layout drift: ftRevocationDate");
+static_assert(offsetof(RevStatusInfo, dwRevocationReason) == 36, "layout drift: dwRevocationReason");
 
 struct IOCSPRevInfoProvider : public IUnknown {
     virtual HRESULT STDMETHODCALLTYPE Initialize(BSTR bstrCAId, CERTTRANSBLOB *pCACert, CERTTRANSBLOB *pConfig) = 0;
