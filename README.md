@@ -1,10 +1,26 @@
 # ADCS CDBRP - CA Database Based Revocation Provider
 
-A native COM revocation provider for **AD CS Online Responder** that answers OCSP from a
-snapshot of the **CA certificate database** instead of a CRL.
+> **The problem.** A certificate is revoked in the CA, but OCSP keeps answering `good` until
+> that CA publishes its next CRL — which is usually minutes to hours later, and exactly when
+> you needed the answer to be `revoked`.
+>
+> **What this does.** A native COM revocation provider for AD CS Online Responder that reads
+> the **CA certificate database** instead of the CRL, so revocation shows up in about a
+> minute. Rollback to the built-in CRL provider is one command.
+>
+> **中文**：证书在 CA 里吊销了，OCSP 却还返回 `good`，要等这个 CA 重新发布 CRL 才变 ——
+> 而这往往正是你最需要它是 `revoked` 的时候。本提供程序直接从 CA 数据库取吊销状态，
+> 约 1 分钟生效；回滚到内置 CRL 提供程序只需一条命令。
 
-Once a certificate is revoked in the CA database, the responder can report it within about
-one minute — no CRL publication cycle, no CRL distribution point in the loop.
+## How it differs from the built-in provider
+
+| | Built-in `ocsprevp.dll` | This provider |
+|---|---|---|
+| Answer source | CRL | CA database snapshot (`certutil -view`) |
+| Revocation visible after | next CRL publication | ~1 minute |
+| Needs CRL distribution point | yes | no |
+| Multi-CA | one provider per CA | per-CA sections in one `provider.ini` |
+| Revoked reason / time | from CRL | from the database row |
 
 <sub>**中文摘要**：给 AD CS 联机响应程序（OCSPSvc）用的原生 COM 吊销提供程序，吊销数据取自 CA
 证书数据库快照而不是 CRL，吊销后约 1 分钟即可在 OCSP 中体现。支持多 CA、中英双语、x64/x86/ARM64。
