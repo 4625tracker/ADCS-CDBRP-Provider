@@ -52,13 +52,18 @@ function Invoke-Uitest([string]$argLine) {
     $exe = Join-Path $RepoRoot ("out\$Arch\uitest.exe")
     $cmd = '"{0}" {1} -dll "{2}" -ca "TEST\CA" > "{3}" 2>&1' -f $exe, $argLine, $Dll, $LogFile
     # A freshly built unsigned exe can be locked by antivirus for a few seconds; cmd then
-    # writes "Access is denied." into the log and the assertion fails for no real reason.
-    for ($attempt = 1; $attempt -le 6; $attempt++) {
+    # writes its complaint (localised!) into the log and the assertion fails for no real
+    # reason. Match the English and Chinese wording, and retry long enough for a scan to end.
+    for ($attempt = 1; $attempt -le 20; $attempt++) {
         if (Test-Path $LogFile) { Remove-Item $LogFile -Force -ErrorAction SilentlyContinue }
         cmd /c $cmd | Out-Null
-        if (-not (Test-Path $LogFile)) { Start-Sleep -Milliseconds 400; continue }
+        if (-not (Test-Path $LogFile)) { Start-Sleep -Milliseconds 500; continue }
         $text = Get-Content $LogFile -Encoding UTF8 -Raw
-        if ($text -match 'Access is denied|cannot find the file') { Start-Sleep -Milliseconds 400; continue }
+        if ([string]::IsNullOrWhiteSpace($text)) { Start-Sleep -Milliseconds 500; continue }
+        if ($text -match 'Access is denied|cannot find the file|拒绝访问|找不到') {
+            Start-Sleep -Milliseconds 500
+            continue
+        }
         return $text
     }
     return ''
@@ -128,6 +133,9 @@ Write-Host '=== serial lookups' -ForegroundColor Cyan
 $out = Invoke-Uitest ("verify {0}" -f $revokedSerial)
 Check 'revoked serial -> status 1' ($out -match 'status=1') $out
 Check 'revoked reason propagated'  ($out -match 'reason=1') $out
+# nextUpdate decides how long the responder may serve a cached answer. If this drifts back to
+# minutes, revocation stops showing up "within a minute" no matter how fresh the snapshot is.
+Check 'response window is 60s (cache lifetime)' ($out -match 'window=60') $out
 
 $out = Invoke-Uitest ("verify {0}" -f $validSerial)
 Check 'valid serial -> status 0' ($out -match 'status=0') $out
@@ -159,15 +167,15 @@ function Invoke-Cfg([string[]]$argv) {
     # OcspConfig is a GUI-subsystem binary: cmd /c would return before it finished, so wait
     # for the process and let Start-Process own the redirection handles. Same antivirus-lock
     # retry as Invoke-Uitest, because Start-Process throws instead of writing a log.
-    for ($attempt = 1; $attempt -le 6; $attempt++) {
+    for ($attempt = 1; $attempt -le 20; $attempt++) {
         try {
             $null = Start-Process -FilePath $cfgExe -ArgumentList $argv -NoNewWindow -Wait -PassThru `
                     -RedirectStandardOutput $dumpFile -RedirectStandardError "$dumpFile.err" -ErrorAction Stop
             if (Test-Path $dumpFile) { return (Get-Content $dumpFile -Encoding UTF8 -Raw) }
             return ''
         } catch {
-            if ($attempt -eq 6) { throw }
-            Start-Sleep -Milliseconds 400
+            if ($attempt -eq 20) { throw }
+            Start-Sleep -Milliseconds 500
         }
     }
     return ''

@@ -62,6 +62,19 @@ CORP-B                       both     2      0      1        7      1       C:\P
 
 以下都是这次在真实服务器上部署时暴露出来的：
 
+- **计划任务根本没有触发器**：`install.ps1` 调用 `Register-ScheduledTask` 时没传 `-Trigger`，
+  生成的任务是空的 `<Triggers />`，从来不运行 —— 快照永远停在安装那一刻。现在用任务 XML
+  显式写 `TimeTrigger` + `Repetition Interval PT1M`（不带 `Duration` 才是"无限重复"），
+  注册后还会断言 `Triggers.Count > 0` 且 `NextRunTime` 有值。
+- **计划任务里的 CA 名被破坏**：任务动作把中文 CA 名当参数传递，而无 BOM 的 UTF-8 脚本被
+  PowerShell 5.1 按 ANSI 读取，一个多字节序列把后面的反斜杠吃掉了，于是 `sync.ps1` 认为这个
+  名字没有主机前缀、又加了一次，变成 `服务器\服务器\CA`，`certutil` 每次都以
+  `E_INVALIDARG (0x80070057)` 失败。现在任务动作**不带 CA 名**，由 `sync.ps1` 从响应程序
+  注册表解析。
+- **响应程序把答复缓存半小时**：`nextUpdate` 硬编码为 `now + 30 分钟`，而响应程序和客户端就
+  按这个时间缓存答复 —— 快照明明已经更新，OCSP 仍返回半小时前的旧答复。新增 `responseseconds`
+  配置项（默认 60），`nextUpdate = now + responseseconds`。**实测端到端 62 秒**：往快照里
+  注入一条吊销记录后，OCSP 在 62 秒后变成 `revoked`。
 - **`DllRegisterServer` 曾把默认安装目录写进注册表**。注册表还没有 `InstallDir` 值时它退回
   `%ProgramData%\OcspDbProvider`，于是把「猜出来的默认值」写成了事实，之后一直指向那个空目录 ——
   这就是状态页显示 0 条的直接原因。现在以 DLL 自身所在目录为准，安装脚本也会显式写入并校验。

@@ -409,8 +409,8 @@ static int DumpAll()
     std::vector<CaRow> rows = CollectCas();
     if (rows.empty()) { Print(L"(no CA found: no responder config and no section in provider.ini)"); return 0; }
 
-    Print(L"%-28s %-8s %-6s %-6s %-8s %-6s %-7s %s",
-          L"CA", L"source", L"check", L"valid", L"revoked", L"unk", L"rows", L"snapshot");
+    Print(L"%-28s %-8s %-6s %-6s %-8s %-6s %-7s %-5s %s",
+          L"CA", L"source", L"check", L"valid", L"revoked", L"unk", L"rows", L"resp", L"snapshot");
     for (size_t i = 0; i < rows.size(); i++) {
         Settings st = ConfigEffectiveFor(rows[i].id);
         SnapInfo s = InspectSnapshot(st.snapshot);
@@ -420,15 +420,15 @@ static int DumpAll()
         if (!s.exists) wcscpy_s(rowsText, L"(no file)");
         else _snwprintf_s(rowsText, _countof(rowsText), _TRUNCATE, L"%Iu%s", s.rows,
                           s.rows == 0 ? L"!" : L"");
-        Print(L"%-28s %-8s %-6d %-6d %-8d %-6d %-7s %s",
+        Print(L"%-28s %-8s %-6d %-6d %-8d %-6d %-7s %-5d %s",
               rows[i].id.c_str(), src, st.checkSeconds, st.validStatus, st.revokedStatus,
-              st.unknownStatus, rowsText, st.snapshot.c_str());
+              st.unknownStatus, rowsText, st.responseSeconds, st.snapshot.c_str());
     }
     return 0;
 }
 
 static int SetCa(const std::wstring &ca, const Settings &overrides, bool hasSnap, bool hasCheck,
-                 bool hasValid, bool hasRevoked, bool hasUnknown)
+                 bool hasValid, bool hasRevoked, bool hasUnknown, bool hasResponse)
 {
     Settings st = ConfigEffectiveFor(ca);
     if (hasSnap)    st.snapshot      = overrides.snapshot;
@@ -436,6 +436,7 @@ static int SetCa(const std::wstring &ca, const Settings &overrides, bool hasSnap
     if (hasValid)   st.validStatus   = overrides.validStatus;
     if (hasRevoked) st.revokedStatus = overrides.revokedStatus;
     if (hasUnknown) st.unknownStatus = overrides.unknownStatus;
+    if (hasResponse) st.responseSeconds = overrides.responseSeconds;
 
     if (!ConfigSaveCa(ca, st)) { Print(L"ERROR: cannot write %s", IniPath().c_str()); return 1; }
     ConfigReload();
@@ -449,7 +450,7 @@ static void PrintHelp()
     Print(L"");
     Print(L"  OcspConfig.exe                       open the GUI");
     Print(L"  OcspConfig.exe --dump                print every CA with its effective settings");
-    Print(L"  OcspConfig.exe --set <ca> [--snapshot <p>] [--check N] [--valid N] [--revoked N] [--unknown N]");
+    Print(L"  OcspConfig.exe --set <ca> [--snapshot <p>] [--check N] [--valid N] [--revoked N] [--unknown N] [--response N]");
     Print(L"  OcspConfig.exe --remove <ca>         delete that CA section");
     Print(L"  OcspConfig.exe --selftest            open, dump controls, close");
     Print(L"  OcspConfig.exe --lang zh|en          force the UI language");
@@ -461,7 +462,7 @@ static int RunApp(int argc, wchar_t **argv)
     std::wstring mode = L"gui";
     std::wstring ca;
     Settings ov;
-    bool hasSnap = false, hasCheck = false, hasValid = false, hasRevoked = false, hasUnknown = false;
+    bool hasSnap = false, hasCheck = false, hasValid = false, hasRevoked = false, hasUnknown = false, hasResponse = false;
 
     for (int i = 1; i < argc; i++) {
         std::wstring a = argv[i];
@@ -476,6 +477,7 @@ static int RunApp(int argc, wchar_t **argv)
         else if (a == L"--valid" && i + 1 < argc) { ov.validStatus = _wtoi(argv[++i]); hasValid = true; }
         else if (a == L"--revoked" && i + 1 < argc) { ov.revokedStatus = _wtoi(argv[++i]); hasRevoked = true; }
         else if (a == L"--unknown" && i + 1 < argc) { ov.unknownStatus = _wtoi(argv[++i]); hasUnknown = true; }
+        else if (a == L"--response" && i + 1 < argc) { ov.responseSeconds = _wtoi(argv[++i]); hasResponse = true; }
         else if (a == L"--capture") SetEnvironmentVariableW(L"OCSPCONFIG_CAPTURE", L"1");
         else { Print(L"unknown option: %s (try --help)", a.c_str()); return 2; }
     }
@@ -484,7 +486,7 @@ static int RunApp(int argc, wchar_t **argv)
     if (mode == L"selftest") { SetEnvironmentVariableW(L"OCSPCONFIG_CAPTURE", L"1"); return RunGui(); }
     if (mode == L"set") {
         if (ca.empty()) { Print(L"--set needs a CA name"); return 2; }
-        return SetCa(ca, ov, hasSnap, hasCheck, hasValid, hasRevoked, hasUnknown);
+        return SetCa(ca, ov, hasSnap, hasCheck, hasValid, hasRevoked, hasUnknown, hasResponse);
     }
     if (mode == L"remove") {
         if (ca.empty()) { Print(L"--remove needs a CA name"); return 2; }

@@ -163,6 +163,7 @@ void ApplyKey(CaConfig &cfg, const std::string &k, const std::string &v)
     else if (k == "validstatus")      cfg.validStatus   = atoi(v.c_str());
     else if (k == "revokedstatus")    cfg.revokedStatus = atoi(v.c_str());
     else if (k == "unknownstatus")    cfg.unknownStatus = atoi(v.c_str());
+    else if (k == "responseseconds")  cfg.responseSeconds = atoi(v.c_str());
 }
 
 // 配置文件是 UTF-8 的 key=value；[default] 或文件头的平铺键对所有 CA 生效，
@@ -244,6 +245,7 @@ bool WriteFileLocked(Store &s)
         if (c.validStatus   >= 0) { sprintf_s(num, "%d", c.validStatus);   body += "validstatus=";   body += num; body += "\r\n"; }
         if (c.revokedStatus >= 0) { sprintf_s(num, "%d", c.revokedStatus); body += "revokedstatus="; body += num; body += "\r\n"; }
         if (c.unknownStatus >= 0) { sprintf_s(num, "%d", c.unknownStatus); body += "unknownstatus="; body += num; body += "\r\n"; }
+        if (c.responseSeconds >= 0) { sprintf_s(num, "%d", c.responseSeconds); body += "responseseconds="; body += num; body += "\r\n"; }
     }
 
     return WriteTextFileUtf8(IniPath(), body);
@@ -268,6 +270,7 @@ Settings ConfigEffectiveFor(const std::wstring &caId)
     st.validStatus   = (c && c->validStatus   >= 0) ? c->validStatus   : (d->validStatus   >= 0 ? d->validStatus   : 0);
     st.revokedStatus = (c && c->revokedStatus >= 0) ? c->revokedStatus : (d->revokedStatus >= 0 ? d->revokedStatus : 1);
     st.unknownStatus = (c && c->unknownStatus >= 0) ? c->unknownStatus : (d->unknownStatus >= 0 ? d->unknownStatus : 0);
+    st.responseSeconds = (c && c->responseSeconds >= 0) ? c->responseSeconds : (d->responseSeconds >= 0 ? d->responseSeconds : 60);
 
     std::wstring snap = (c && !c->snapshot.empty()) ? c->snapshot : d->snapshot;
     LeaveCriticalSection(&s.cs);
@@ -277,6 +280,8 @@ Settings ConfigEffectiveFor(const std::wstring &caId)
 
     if (st.checkSeconds < 0) st.checkSeconds = 0;
     if (st.checkSeconds > 3600) st.checkSeconds = 3600;
+    if (st.responseSeconds < 10) st.responseSeconds = 10;
+    if (st.responseSeconds > 3600) st.responseSeconds = 3600;
     return st;
 }
 
@@ -291,6 +296,7 @@ bool ConfigSaveCa(const std::wstring &caId, const Settings &st)
     c.validStatus   = st.validStatus;
     c.revokedStatus = st.revokedStatus;
     c.unknownStatus = st.unknownStatus;
+    c.responseSeconds = st.responseSeconds;
     bool ok = WriteFileLocked(s);
     LeaveCriticalSection(&s.cs);
     return ok;

@@ -172,15 +172,20 @@ static LONG64 FileTimeNow(void)
     return v - (v % 10000000LL);       // 取整到秒（FILETIME 单位 100ns）
 }
 
-static FILETIME FileTimeFromNowMinutes(int minutes)
+static FILETIME FileTimeFromNowSeconds(int seconds)
 {
-    LONG64 v = FileTimeNow() + (LONG64)minutes * 60LL * 10000000LL;
+    LONG64 v = FileTimeNow() + (LONG64)seconds * 10000000LL;
     FILETIME ft;
     ULARGE_INTEGER u;
     u.QuadPart = (ULONGLONG)v;
     ft.dwLowDateTime = u.LowPart;
     ft.dwHighDateTime = u.HighPart;
     return ft;
+}
+
+static FILETIME FileTimeFromNowMinutes(int minutes)
+{
+    return FileTimeFromNowSeconds(minutes * 60);
 }
 
 static FILETIME FileTimeFromLongLong(LONG64 v)
@@ -523,9 +528,13 @@ public:
     {
         if (!pStatus) return E_POINTER;
         ZeroMemory(pStatus, sizeof(*pStatus));
+
+        // nextUpdate 是响应程序缓存这条答复的期限：设 30 分钟，吊销就已经在快照里了、
+        // 客户端拿到的还是半小时前的旧答复。默认 60 秒，让"一分钟内生效"真的成立。
+        Settings cfg = ConfigEffectiveFor(m_caId);
         pStatus->ftThisUpdate  = FileTimeFromLongLong(FileTimeNow());
-        pStatus->ftNextUpdate  = FileTimeFromNowMinutes(30);
-        pStatus->ftNextPublish = FileTimeFromNowMinutes(120);
+        pStatus->ftNextUpdate  = FileTimeFromNowSeconds(cfg.responseSeconds);
+        pStatus->ftNextPublish = FileTimeFromNowSeconds(cfg.responseSeconds > 120 ? cfg.responseSeconds : 120);
 
         LONG n = InterlockedIncrement(&m_calls);
         InterlockedIncrement(&g_queryCount);

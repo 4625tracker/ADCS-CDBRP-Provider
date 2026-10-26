@@ -155,6 +155,31 @@ the built-in `{4956d17f-88fd-4198-b287-1e6e65883b19}`).
 | MMC crashes when the provider is selected | `GetStatus` must return `VT_ARRAY|VT_BSTR` |
 | app pool `unauthorized` | the `/ocsp` vdir must run on the pool that has `0x300` on `Responder\OCSPSecurity` |
 
+### "A revocation takes much longer than a minute to show up"
+
+Three stages can each add latency, and each has its own check. Fixing the wrong one wastes a
+lot of time, so measure before changing anything.
+
+| Stage | What to check | Normal value |
+|---|---|---|
+| 1. Snapshot refresh | `Get-ScheduledTaskInfo -TaskName OcspDbProvider-Sync-<CA>` → `LastRunTime` advances; the `.dat` mtime advances with it | ~61 s |
+| 2. Provider reload | `uitest.exe info -ca <CA>` → `Last snapshot load` keeps up with the file time | ≤ `checkseconds` (default 2 s) |
+| 3. **Response caching** | query the same serial twice ~10 s apart while watching `provider-native.log`: a second query with **no** new `VerifySerialNumber` line means the answer came from the responder's cache | ≤ `responseseconds` (default 60 s) |
+
+Stage 3 is the one that surprises people: `nextUpdate` in the answer is what the responder (and
+the client) may cache until, so a 30-minute window makes a freshly revoked certificate look
+`good` for half an hour **even though the snapshot is perfect**. Measured end to end with the
+defaults: **62 seconds**.
+
+Stage 1 failures usually look like a `.dat` file that simply never changes. Two causes have
+been seen in the field:
+
+- the task was registered with an empty `<Triggers/>` (older installers did this) — `Get-ScheduledTask` shows `Triggers.Count = 0` and `LastRunTime = 1601-01-01`/`1999-11-30`;
+- the action carries a non-ASCII CA name that got mangled in transit, so `certutil` fails with
+  `E_INVALIDARG (0x80070057)` on every run — the task result is `0x1` and `sync.log` shows a
+  doubled host prefix. Current versions pass no CA name to the task and let `sync.ps1` resolve
+  it from the responder registry.
+
 Logs:
 
 - `%ProgramData%\OcspDbProvider\provider-native.log` — DLL load, `Initialize`, first queries

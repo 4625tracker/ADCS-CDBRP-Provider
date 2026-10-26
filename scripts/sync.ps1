@@ -48,6 +48,21 @@ function ConvertTo-SafeName([string]$s) {
     return $name
 }
 
+# Resolve the responder CA from the registry when -CA is not given. The scheduled task passes
+# no CA name on purpose: a non-ASCII name in a task argument gets mangled on the way in, which
+# previously produced a doubled prefix and made every scheduled run fail.
+if ([string]::IsNullOrEmpty($CA)) {
+    $responderRoot = 'HKLM:\SYSTEM\CurrentControlSet\Services\OCSPSvc\Responder'
+    $found = @(Get-ChildItem $responderRoot -ErrorAction SilentlyContinue | ForEach-Object { $_.PSChildName })
+    if ($found.Count -eq 1) {
+        $CA = $found[0]
+    } elseif ($found.Count -gt 1) {
+        throw ("multiple responder CAs found (" + ($found -join ', ') + "); pass -CA explicitly")
+    } else {
+        throw 'no responder CA found; pass -CA explicitly'
+    }
+}
+
 # certutil needs HOST\CA-NAME; a bare CA name fails with RPC_S_SERVER_UNAVAILABLE (0x800706BA)
 if (-not [string]::IsNullOrEmpty($CA) -and $CA -notmatch '\\') {
     $CA = $env:COMPUTERNAME + '\' + $CA

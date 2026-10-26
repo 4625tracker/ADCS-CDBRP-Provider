@@ -255,17 +255,59 @@ function Register-Task([string]$caConfig, [string]$caBare) {
 
     $syncScript = Join-Path $InstallDir 'sync.ps1'
     $out = Join-Path $DataDir ((ConvertTo-SafeName $caBare) + '.dat')
+
+    # The action deliberately carries no CA name: sync.ps1 resolves it from the responder
+    # registry. A non-ASCII CA name inside a task argument is what broke this before - the
+    # name arrived with a mangled separator and certutil rejected it, so the refresh never
+    # worked and the snapshot silently stayed at install time.
     $argLine = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $syncScript + '" -Out "' + $out + '" -DataDir "' + $DataDir + '"'
-    if (-not [string]::IsNullOrEmpty($caConfig)) { $argLine += ' -CA "' + $caConfig + '"' }
 
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
-    $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argLine
-    $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-                    -ExecutionTimeLimit (New-TimeSpan -Minutes 5) -MultipleInstances IgnoreNew
-    Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
+
+    # Build the XML by hand: New-ScheduledTaskTrigger cannot express "repeat forever"
+    # (a TimeSpan.Zero duration serialises as 00:00:00 and the scheduler rejects it), and
+    # omitting the trigger entirely - which is what this function used to do - produces a
+    # task with an empty <Triggers/>, i.e. one that never runs.
+    $start = (Get-Date).AddMinutes(1).ToString('yyyy-MM-ddTHH:mm:ss')
+    $taskXml = @"
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.3" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <URI>\$taskName</URI>
+    <Description>Refresh the CA database snapshot for the OCSP revocation provider (every minute).</Description>
+  </RegistrationInfo>
+  <Principals><Principal id="Author"><UserId>S-1-5-18</UserId><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <ExecutionTimeLimit>PT5M</ExecutionTimeLimit>
+    <Enabled>true</Enabled>
+  </Settings>
+  <Triggers>
+    <TimeTrigger>
+      <StartBoundary>$start</StartBoundary>
+      <Enabled>true</Enabled>
+      <Repetition><Interval>PT1M</Interval></Repetition>
+    </TimeTrigger>
+  </Triggers>
+  <Actions Context="Author">
+    <Exec>
+      <Command>powershell.exe</Command>
+      <Arguments>$argLine</Arguments>
+    </Exec>
+  </Actions>
+</Task>
+"@
+    Register-ScheduledTask -TaskName $taskName -Xml $taskXml -Force | Out-Null
+
+    # Verify instead of assuming: an empty trigger list is exactly the failure this replaced.
     $t = Get-ScheduledTask -TaskName $taskName
-    Write-Ok ("{0} state={1}" -f $t.TaskName, $t.State)
+    $info = Get-ScheduledTaskInfo -TaskName $taskName
+    if (-not $t.Triggers -or $t.Triggers.Count -eq 0) { throw "task $taskName was registered without a trigger" }
+    if (-not $info.NextRunTime) { throw "task $taskName has no next run time" }
+    Write-Ok ("{0} state={1} triggers={2} next={3}" -f $t.TaskName, $t.State, $t.Triggers.Count, $info.NextRunTime)
 }
 
 # ------------------------------------------------------------------ modes

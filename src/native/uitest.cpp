@@ -274,6 +274,16 @@ int wmain(int argc, wchar_t **argv)
             hr = prov->VerifySerialNumber(&blob, &st);
             Print(L"VerifySerialNumber hr=0x%08X", hr);
             Print(L"  status=%lu reason=%lu", st.dwStatus, st.dwRevocationReason);
+            {
+                // The responder caches a response until nextUpdate, so this window is exactly
+                // "how stale an answer a client can still get". Printed so a test can pin it.
+                ULARGE_INTEGER a, b;
+                a.LowPart = st.ftThisUpdate.dwLowDateTime;  a.HighPart = st.ftThisUpdate.dwHighDateTime;
+                b.LowPart = st.ftNextUpdate.dwLowDateTime;  b.HighPart = st.ftNextUpdate.dwHighDateTime;
+                long long window = (b.QuadPart > a.QuadPart)
+                                   ? (long long)((b.QuadPart - a.QuadPart) / 10000000ULL) : -1;
+                Print(L"  window=%lld", window);
+            }
             if (st.ftRevocationDate.dwLowDateTime || st.ftRevocationDate.dwHighDateTime) {
                 FILETIME ftLocal;
                 SYSTEMTIME stt;

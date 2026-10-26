@@ -43,6 +43,7 @@ struct CaConfig {
     int validStatus    = -1;
     int revokedStatus  = -1;
     int unknownStatus  = -1;
+    int responseSeconds = -1;   // OCSP nextUpdate 的寿命（秒）
 };
 
 // 合并后的生效配置
@@ -52,6 +53,9 @@ struct Settings {
     int validStatus   = 0;
     int revokedStatus = 1;
     int unknownStatus = 0;
+    // 答复里 nextUpdate = now + responseSeconds。响应程序（以及客户端）会把这个答复缓存到
+    // nextUpdate 为止，所以它决定了"吊销多久能反映到 OCSP"，默认 60 秒。
+    int responseSeconds = 60;
 };
 
 // 合并规则：CA 段 > [default] > 内置默认；快照缺省为 <install>\data\<safe-ca>.dat
