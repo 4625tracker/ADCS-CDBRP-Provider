@@ -52,7 +52,7 @@ ocspsvc.exe -> IIS (/ocsp) -> clients
 
 The interface contract was recovered by reverse engineering `ocsprevp.dll` and `ocspsvc.exe`;
 the interesting parts (including two traps that corrupt the heap or misplace every timestamp)
-are documented in [docs/REVERSE-ENGINEERING.md](docs/REVERSE-ENGINEERING.md).
+are documented in [docs/REVERSE-ENGINEERING.md](docs/REVERSE-ENGINEERING.md)（附 [docs/REFERENCES.md](docs/REFERENCES.md)：官方文档覆盖到哪、哪些只能逆向）.
 
 ## Features
 
@@ -199,7 +199,7 @@ dist/                  release artifacts (generated, not committed)
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Interfaces, structures, data flow, multi-CA model |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Install, activate, verify, roll back, troubleshoot |
 | [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) | OS/arch/toolchain matrix, migration from 1.x |
-| [docs/REVERSE-ENGINEERING.md](docs/REVERSE-ENGINEERING.md) | Recovered COM contract and the traps |
+| [docs/REVERSE-ENGINEERING.md](docs/REVERSE-ENGINEERING.md)（附 [docs/REFERENCES.md](docs/REFERENCES.md)：官方文档覆盖到哪、哪些只能逆向） | Recovered COM contract and the traps |
 
 ## Troubleshooting
 
@@ -279,7 +279,7 @@ unknownstatus=2
 4. 联机响应程序传进来的序列号是**字节反序**的，匹配前要按字节反转。
 5. CA 配置串必须带主机前缀（`机器名\CA名`），裸 CA 名会报 `0x800706BA`。
 
-详见 [docs/REVERSE-ENGINEERING.md](docs/REVERSE-ENGINEERING.md)。
+详见 [docs/REVERSE-ENGINEERING.md](docs/REVERSE-ENGINEERING.md)（附 [docs/REFERENCES.md](docs/REFERENCES.md)：官方文档覆盖到哪、哪些只能逆向）。
 
 ## 参与 / 安全 / 反馈
 
