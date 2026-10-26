@@ -1,7 +1,11 @@
-# Show HN 稿件（成稿，可直接粘贴）
+# Show HN 稿件（骨架 + 素材）
 
 > 目标不是"上榜"，是**被那几十个真正跑 AD CS 的人看到**，并且让他们愿意点进 README。
 > HN 的读者对营销词极度敏感，对"我踩了哪些坑"极度宽容 —— 所以正文全部用来讲坑。
+>
+> **注意：第 2 节那份稿子只当骨架，不要整段粘贴。** Show HN 的隐含要求是"作者本人在场、
+> 能答"，往下看第 2.5 节的素材清单，挑 2–3 条用自己的话重写。用 bullet 排得过分整齐、
+> 结尾来一句 "happy to answer anything"，反而是最明显的机器味。
 
 ## 1. 提交信息
 
@@ -29,7 +33,32 @@ Show HN: Revocation for AD CS without waiting for CRL publication
 **时机：** 周二至周四，美东时间 08:00–10:00（= 北京 20:00–22:00）。发完**至少守两小时**，
 前 30 分钟的评论决定它能不能留在首页。
 
-## 2. 第一条评论（作者自述，粘贴这个）
+## 2. 素材清单：只有你能写的东西（挑 2–3 条，别全用）
+
+这些都是真实发生过的事故现场，比任何形容词都有说服力。**带错误码、带具体现象**：
+
+| 现象 | 细节 |
+|---|---|
+| `ocspsvc.exe` 堆损坏 | 把 `GetConfigInformation` 的返回当成字节缓冲，进程崩在 `0xc0000374`；正确形状是 `CERTTRANSBLOB` 里装 `VT_ARRAY\|VT_BSTR` |
+| 客户端报 `Bad time value` | `RevStatusInfo` 必须 40 字节紧凑排列，差一个字节所有 FILETIME 就错位 |
+| 序列号答案"看着合理但是错的" | 传进来的是字节反序；如果按十六进制**字符**反转，会匹配到别的条目 —— 这种错比直接失败更危险 |
+| 安装包起不来，报 SxS 配置错误 | 事件日志里是「invalid Xml syntax line 3」，因为清单文件的 XML 注释里写了 `--` |
+| 资源编译把中文路径截断 | 那台服务器机器名就叫「FTP服务器」，`rc.exe` 处理不了非 ASCII 资源路径，只能把 payload 先放到纯 ASCII 的临时目录 |
+| MMC 状态页永远显示「0 条」 | 旧版状态文本用的是进程内全局变量，而 `GetStatus` 是被 `mmc.exe` 调用的 —— 那个进程从没查过询，所以计数恒为 0；真实数据是 28 条 |
+| 快照一直没生成，看不出原因 | `sync.ps1` 用了 `ProcessStartInfo.ArgumentList`，而它在 Windows PowerShell 5.1 的 .NET Framework 上根本不存在（值为 `$null`） |
+| 安装中途中断，服务停着回不来 | `Stop-WebAppPool` 对「已停止的池」抛非终止错误，脚本又开了 `$ErrorActionPreference = 'Stop'` |
+| 注册表里的安装目录被写成空的默认值 | `DllRegisterServer` 在注册表没有该值时退回 `%ProgramData%`，并把这个猜测**写了回去**，之后一直指向空目录 |
+| `regsvr32` 明明成功却没有退出码 | 在某台机器上它什么都不返回，只能以 `InprocServer32` 的注册表值为准 |
+
+**写法建议：三段，不用 bullet。**
+
+1. 症状：吊销了证书，OCSP 还说 good，等 CRL。
+2. 你怎么做的 + **一个**最离谱的坑（带错误码）。
+3. 老实说哪里没测过（大 CA、ARM64、非英文/中文 locale、二进制未签名）。
+
+三句话能说完就说完 —— HN 上短而密比长而全高分。
+
+## 3. 骨架稿（参考结构，别整段粘贴）
 
 ```
 Author here.
@@ -64,7 +93,7 @@ issued certificates.
 Happy to answer anything about the COM contract, the parse format, or the AD CS side.
 ```
 
-## 3. 预判问题（评论区十有八九会问这些，提前想好）
+## 4. 预判问题（评论区十有八九会问这些，提前想好）
 
 **Q: 为什么不直接把 CRL 发布周期调短？**
 > 那是成本转移，不是解决。CRL 要重新签名、要发布、要分发，客户端还会缓存；把周期从 24h
@@ -104,7 +133,7 @@ Happy to answer anything about the COM contract, the parse format, or the AD CS 
 > 代码里加了 `/MACHINE:ARM64` 分支，但本机没装 ARM64 编译组件，没实测，所以 Release 里
 > 不放 ARM64 包 —— 不想给一个自己没跑过的东西。
 
-## 4. 规矩（别踩）
+## 5. 规矩（别踩）
 
 - 不要请人 upvote，不要转发到自己小号。
 - 不要在标题/正文里放"star my repo"。
@@ -112,7 +141,7 @@ Happy to answer anything about the COM contract, the parse format, or the AD CS 
 - 评论里被质疑时，先承认边界（"这个我没测过"），再解释 —— 硬顶会掉到 -1 没人再看见你。
 - 有人在评论里复现出问题，比 100 个 upvote 有价值；当场道谢并开 issue。
 
-## 5. 发完之后
+## 6. 发完之后
 
 - 把有价值的评论整理成 issue（尤其"在大 CA 上会不会炸"这类）。
 - 如果上了首页，README 首屏会被大量陌生流量看到——确认第一屏能一眼看懂症状。
