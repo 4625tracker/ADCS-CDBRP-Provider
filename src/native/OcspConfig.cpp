@@ -446,7 +446,7 @@ static int SetCa(const std::wstring &ca, const Settings &overrides, bool hasSnap
 
 static void PrintHelp()
 {
-    Print(L"OcspConfig 2.1.0 - multi-CA configuration for the OCSP CA database revocation provider");
+    Print(L"OcspConfig 2.1.1 - multi-CA configuration for the OCSP CA database revocation provider");
     Print(L"");
     Print(L"  OcspConfig.exe                       open the GUI");
     Print(L"  OcspConfig.exe --dump                print every CA with its effective settings");
