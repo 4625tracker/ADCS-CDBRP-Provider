@@ -180,6 +180,26 @@ been seen in the field:
   doubled host prefix. Current versions pass no CA name to the task and let `sync.ps1` resolve
   it from the responder registry.
 
+### "OCSP returns 500 every so often, and never when I test it"
+
+A 500 that comes and goes is usually not this provider — it is the responder being restarted
+under you. Check for a **restart workaround** left over from the built-in CRL provider:
+
+```powershell
+Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=(Get-Date).AddHours(-2)} |
+  Where-Object { $_.Id -in 17,18 } | Select TimeCreated,Id     # OCSPSvc stopped/started pairs
+Get-ScheduledTask | Where-Object { $_.Actions.Arguments -match 'OCSPSvc|Restart-Service' }
+```
+
+A task that restarts `OCSPSvc` whenever the CRL changes (a common workaround, because the
+built-in provider only re-reads a CRL on startup) fires on **every CRL republication** — so a
+CA publishing a CRL every ten minutes causes a restart every ten minutes, and each restart has
+a window where requests fail with 500.
+
+The CA-database provider does not need that workaround: it re-reads its snapshot when the file
+changes, without a restart. Disable the task (`Disable-ScheduledTask -TaskName <name>`) and the
+intermittent 500s stop. Re-enable it if you ever roll back to the built-in provider.
+
 Logs:
 
 - `%ProgramData%\OcspDbProvider\provider-native.log` — DLL load, `Initialize`, first queries
