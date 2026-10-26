@@ -133,9 +133,10 @@ Write-Host '=== serial lookups' -ForegroundColor Cyan
 $out = Invoke-Uitest ("verify {0}" -f $revokedSerial)
 Check 'revoked serial -> status 1' ($out -match 'status=1') $out
 Check 'revoked reason propagated'  ($out -match 'reason=1') $out
-# nextUpdate decides how long the responder may serve a cached answer. If this drifts back to
-# minutes, revocation stops showing up "within a minute" no matter how fresh the snapshot is.
-Check 'response window is 60s (cache lifetime)' ($out -match 'window=60') $out
+# nextUpdate decides how long the responder may serve a cached answer, so it is the second half
+# of "how fast does a revocation show up". Default is 30; the config section below also proves
+# the ini key drives it.
+Check 'response window is 30s (cache lifetime)' ($out -match 'window=30') $out
 
 $out = Invoke-Uitest ("verify {0}" -f $validSerial)
 Check 'valid serial -> status 0' ($out -match 'status=0') $out
@@ -199,6 +200,12 @@ $verifyOut = Join-Path $WorkDir 'verify.txt'
 cmd /c ('"{0}" verify DEADBEEF00000000000000000000000000000001 -dll "{1}" -ca CORP-A > "{2}" 2>&1' -f $Uit, $Dll, $verifyOut) | Out-Null
 $out = if (Test-Path $verifyOut) { Get-Content $verifyOut -Encoding UTF8 -Raw } else { '' }
 Check 'provider reads tool-written config (unknown=9)' ($out -match 'status=9') $out
+
+# responseseconds must reach the answer, or the cache lifetime silently reverts to minutes
+$null = Invoke-Cfg @('--set', 'CORP-A', '--response', '15')
+$null = cmd /c ('"{0}" verify DEADBEEF00000000000000000000000000000001 -dll "{1}" -ca CORP-A > "{2}" 2>&1' -f $Uit, $Dll, $verifyOut)
+$out = if (Test-Path $verifyOut) { Get-Content $verifyOut -Encoding UTF8 -Raw } else { '' }
+Check 'responseseconds drives the window' ($out -match 'window=15') $out
 
 $out = Invoke-Cfg @('--remove', 'CORP-B')
 $out = Invoke-Cfg @('--dump')

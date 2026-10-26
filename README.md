@@ -135,11 +135,10 @@ openssl ocsp -issuer ca.cer -serial 0x6200000003CC4141256F50414D000000000003 \
 ```ini
 [default]
 checkseconds=2      ; snapshot cache lifetime; 0 = re-check on every query
-responseseconds=60  ; nextUpdate lifetime = how long the responder may serve a cached answer.
-                    ; This, not the sync interval, decides how fast revocation becomes visible:
-                    ; with 60 the measured end-to-end latency is 62 s; 1800 (the old hard-coded
-                    ; value) meant a freshly revoked certificate could still be cached as "good"
-                    ; for half an hour.
+responseseconds=30  ; nextUpdate lifetime = how long the responder may serve a cached answer.
+                    ; The delay a client sees is bounded by max(refresh cadence, this value),
+                    ; not by their sum. Measured: 23 s end to end with a 20 s refresh cadence
+                    ; and responseseconds=20; the 30 s default keeps it inside a minute.
 validstatus=0       ; dwStatus for "good"
 revokedstatus=1     ; dwStatus for "revoked"
 unknownstatus=0     ; dwStatus for serials not present in the snapshot
@@ -148,8 +147,16 @@ unknownstatus=0     ; dwStatus for serials not present in the snapshot
 [ca:SRV1\CORP-CA]   ; optional per-CA overrides
 snapshot=C:\ProgramData\OcspDbProvider\data\CORP-CA.dat
 unknownstatus=2     ; answer RFC 6960 "unknown" instead of "good"
-responseseconds=30  ; this CA is busier, accept a slightly staler answer
+responseseconds=15  ; this CA is busier, accept a slightly staler answer
 ```
+
+Changes to this file take effect within a couple of seconds — the provider watches its own
+mtime, so there is no need to restart the responder.
+
+The snapshot refresh cadence is set by the installer (`-SyncPerMinute`, 1–6, default 3). The
+scheduler cannot repeat faster than once a minute, so N>1 is implemented as N staggered
+triggers; 3 gives a ~20 s cadence. Raise it for faster revocation visibility, lower it to cut
+`certutil -view` load on a large CA.
 
 A flat file with no sections is also accepted (legacy 1.x layout) and applies to every CA.
 

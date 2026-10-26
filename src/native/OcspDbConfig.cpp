@@ -143,8 +143,14 @@ struct Store {
     CaConfig defaults;
     std::map<std::wstring, CaConfig> cas;
     bool loaded = false;
+    FILETIME iniMtime;
+    DWORD lastCheckTick = 0;
     CRITICAL_SECTION cs;
-    Store() { InitializeCriticalSection(&cs); }
+    Store() {
+        InitializeCriticalSection(&cs);
+        iniMtime.dwLowDateTime = 0;
+        iniMtime.dwHighDateTime = 0;
+    }
 };
 
 // 故意不析构：DLL 卸载期间可能还有线程在用，泄漏几十字节换取安全
@@ -255,8 +261,29 @@ bool WriteFileLocked(Store &s)
 
 // ------------------------------------------------------------------ 对外 API
 
+// 改 provider.ini 之后不该要求重启响应程序，所以按文件时间戳自动重载。
+// 节流到 2 秒一次：接口热路径上只是一个 stat，不会是瓶颈。
+void MaybeReloadOnChange()
+{
+    Store &s = S();
+    DWORD now = GetTickCount();
+    if (s.lastCheckTick != 0 && (DWORD)(now - s.lastCheckTick) < 2000) return;
+    s.lastCheckTick = now;
+
+    WIN32_FILE_ATTRIBUTE_DATA fad;
+    if (!GetFileAttributesExW(IniPath().c_str(), GetFileExInfoStandard, &fad)) return;
+    if (s.iniMtime.dwLowDateTime  == fad.ftLastWriteTime.dwLowDateTime &&
+        s.iniMtime.dwHighDateTime == fad.ftLastWriteTime.dwHighDateTime) return;
+
+    EnterCriticalSection(&s.cs);
+    s.iniMtime = fad.ftLastWriteTime;
+    s.loaded = false;
+    LeaveCriticalSection(&s.cs);
+}
+
 Settings ConfigEffectiveFor(const std::wstring &caId)
 {
+    MaybeReloadOnChange();
     Settings st;
     Store &s = S();
     EnterCriticalSection(&s.cs);
@@ -270,7 +297,7 @@ Settings ConfigEffectiveFor(const std::wstring &caId)
     st.validStatus   = (c && c->validStatus   >= 0) ? c->validStatus   : (d->validStatus   >= 0 ? d->validStatus   : 0);
     st.revokedStatus = (c && c->revokedStatus >= 0) ? c->revokedStatus : (d->revokedStatus >= 0 ? d->revokedStatus : 1);
     st.unknownStatus = (c && c->unknownStatus >= 0) ? c->unknownStatus : (d->unknownStatus >= 0 ? d->unknownStatus : 0);
-    st.responseSeconds = (c && c->responseSeconds >= 0) ? c->responseSeconds : (d->responseSeconds >= 0 ? d->responseSeconds : 60);
+    st.responseSeconds = (c && c->responseSeconds >= 0) ? c->responseSeconds : (d->responseSeconds >= 0 ? d->responseSeconds : 30);
 
     std::wstring snap = (c && !c->snapshot.empty()) ? c->snapshot : d->snapshot;
     LeaveCriticalSection(&s.cs);

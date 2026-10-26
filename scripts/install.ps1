@@ -48,6 +48,12 @@ param(
     # Rebuild even if the DLL already exists
     [switch]$Rebuild,
 
+    # How many times per minute the snapshot is refreshed (1-6). The scheduler cannot repeat
+    # faster than once a minute, so this is implemented as N staggered triggers. 3 gives a
+    # ~20 s cadence and keeps revocation visible well inside a minute.
+    [ValidateRange(1, 6)]
+    [int]$SyncPerMinute = 3,
+
     # Remove the install directory during -Mode uninstall
     [switch]$RemoveFiles,
 
@@ -268,13 +274,31 @@ function Register-Task([string]$caConfig, [string]$caBare) {
     # (a TimeSpan.Zero duration serialises as 00:00:00 and the scheduler rejects it), and
     # omitting the trigger entirely - which is what this function used to do - produces a
     # task with an empty <Triggers/>, i.e. one that never runs.
-    $start = (Get-Date).AddMinutes(1).ToString('yyyy-MM-ddTHH:mm:ss')
+    #
+    # The scheduler's minimum repetition interval is one minute (PT30S and PT20S are both
+    # rejected with 0x80041318), but several triggers that each repeat every minute and start
+    # staggered give a shorter effective cadence: three triggers offset by 20 s refresh every
+    # ~20 s. That is what makes "revocation visible within a minute" hold with margin, since
+    # the perceived delay is bounded by max(refresh cadence, response lifetime).
+    $perMinute = 3
+    if ($SyncPerMinute -and $SyncPerMinute -ge 1 -and $SyncPerMinute -le 6) { $perMinute = [int]$SyncPerMinute }
+    $step = [int][math]::Floor(60 / $perMinute)
+    $sb = New-Object System.Text.StringBuilder
+    for ($i = 0; $i -lt $perMinute; $i++) {
+        $t = (Get-Date).AddSeconds(10 + $i * $step).ToString('yyyy-MM-ddTHH:mm:ss')
+        [void]$sb.AppendLine('    <TimeTrigger>')
+        [void]$sb.AppendLine('      <StartBoundary>' + $t + '</StartBoundary>')
+        [void]$sb.AppendLine('      <Enabled>true</Enabled>')
+        [void]$sb.AppendLine('      <Repetition><Interval>PT1M</Interval></Repetition>')
+        [void]$sb.AppendLine('    </TimeTrigger>')
+    }
+    $triggerXml = $sb.ToString()
     $taskXml = @"
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.3" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
     <URI>\$taskName</URI>
-    <Description>Refresh the CA database snapshot for the OCSP revocation provider (every minute).</Description>
+    <Description>Refresh the CA database snapshot for the OCSP revocation provider.</Description>
   </RegistrationInfo>
   <Principals><Principal id="Author"><UserId>S-1-5-18</UserId><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
   <Settings>
@@ -286,12 +310,7 @@ function Register-Task([string]$caConfig, [string]$caBare) {
     <Enabled>true</Enabled>
   </Settings>
   <Triggers>
-    <TimeTrigger>
-      <StartBoundary>$start</StartBoundary>
-      <Enabled>true</Enabled>
-      <Repetition><Interval>PT1M</Interval></Repetition>
-    </TimeTrigger>
-  </Triggers>
+$triggerXml  </Triggers>
   <Actions Context="Author">
     <Exec>
       <Command>powershell.exe</Command>

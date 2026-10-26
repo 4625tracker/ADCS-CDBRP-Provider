@@ -55,7 +55,7 @@ struct Settings {
     int unknownStatus = 0;
     // 答复里 nextUpdate = now + responseSeconds。响应程序（以及客户端）会把这个答复缓存到
     // nextUpdate 为止，所以它决定了"吊销多久能反映到 OCSP"，默认 60 秒。
-    int responseSeconds = 60;
+    int responseSeconds = 30;
 };
 
 // 合并规则：CA 段 > [default] > 内置默认；快照缺省为 <install>\data\<safe-ca>.dat

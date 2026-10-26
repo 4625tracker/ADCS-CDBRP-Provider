@@ -238,6 +238,7 @@ static void PrintHelp()
     Print(L"                 (default: install)");
     Print(L"  -CAConfig <ca> CA name or HOST\\CA-NAME (default: auto-detect)");
     Print(L"  -InstallDir <dir>  install directory (default: %%ProgramData%%\\OcspDbProvider)");
+    Print(L"  -SyncPerMinute <1-6>  snapshot refreshes per minute (default 3, implemented as staggered triggers)");
     Print(L"  -RemoveFiles   with -Mode uninstall: delete the install directory too");
     Print(L"  --quiet        do not ask for confirmation");
     Print(L"  --keep-temp    keep the extracted payload directory");
@@ -255,6 +256,7 @@ int wmain(int argc, wchar_t **argv)
     std::wstring mode = L"install";
     std::wstring caConfig;
     std::wstring installDir;
+    std::wstring syncPerMinute;
     std::wstring extractOnly;
     bool removeFiles = false;
     bool quiet = false;
@@ -271,6 +273,7 @@ int wmain(int argc, wchar_t **argv)
         else if (a == L"-Mode" && i + 1 < argc) mode = argv[++i];
         else if (a == L"-CAConfig" && i + 1 < argc) caConfig = argv[++i];
         else if (a == L"-InstallDir" && i + 1 < argc) installDir = argv[++i];
+        else if (a == L"-SyncPerMinute" && i + 1 < argc) syncPerMinute = argv[++i];
         else if (a == L"--extract-only" && i + 1 < argc) extractOnly = argv[++i];
         else { Print(L"unknown option: %s (try --help)", a.c_str()); return 2; }
     }
@@ -353,6 +356,7 @@ int wmain(int argc, wchar_t **argv)
                        Quote(script) + L" -Mode " + mode;
     if (!caConfig.empty())   cmd += L" -CAConfig " + Quote(caConfig);
     if (!installDir.empty()) cmd += L" -InstallDir " + Quote(installDir);
+    if (!syncPerMinute.empty()) cmd += L" -SyncPerMinute " + Quote(syncPerMinute);
     if (removeFiles)         cmd += L" -RemoveFiles";
 
     Print(L"");

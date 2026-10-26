@@ -160,16 +160,25 @@ the built-in `{4956d17f-88fd-4198-b287-1e6e65883b19}`).
 Three stages can each add latency, and each has its own check. Fixing the wrong one wastes a
 lot of time, so measure before changing anything.
 
-| Stage | What to check | Normal value |
+| Stage | What to check | Default |
 |---|---|---|
-| 1. Snapshot refresh | `Get-ScheduledTaskInfo -TaskName OcspDbProvider-Sync-<CA>` → `LastRunTime` advances; the `.dat` mtime advances with it | ~61 s |
+| 1. Snapshot refresh | `Get-ScheduledTaskInfo -TaskName OcspDbProvider-Sync-<CA>` → `LastRunTime` advances; the `.dat` mtime advances with it | ~20 s (3 staggered triggers) |
 | 2. Provider reload | `uitest.exe info -ca <CA>` → `Last snapshot load` keeps up with the file time | ≤ `checkseconds` (default 2 s) |
-| 3. **Response caching** | query the same serial twice ~10 s apart while watching `provider-native.log`: a second query with **no** new `VerifySerialNumber` line means the answer came from the responder's cache | ≤ `responseseconds` (default 60 s) |
+| 3. **Response caching** | query the same serial twice ~10 s apart while watching `provider-native.log`: a second query with **no** new `VerifySerialNumber` line means the answer came from the responder's cache | ≤ `responseseconds` (default 30 s) |
 
 Stage 3 is the one that surprises people: `nextUpdate` in the answer is what the responder (and
 the client) may cache until, so a 30-minute window makes a freshly revoked certificate look
-`good` for half an hour **even though the snapshot is perfect**. Measured end to end with the
-defaults: **62 seconds**.
+`good` for half an hour **even though the snapshot is perfect**.
+
+The delay a client actually sees is bounded by **max(stage 1, stage 3)**, not by their sum,
+because the client keeps re-querying as each cached answer expires. Measured end to end with a
+20 s cadence and `responseseconds=20`: **23 seconds**. With the defaults (20 s cadence, 30 s
+lifetime) it stays inside a minute.
+
+The scheduler cannot repeat a trigger faster than once a minute — `PT30S` and `PT20S` are both
+rejected with `0x80041318`. A shorter cadence is achieved with several triggers that each
+repeat every minute and start staggered (`-SyncPerMinute 3` gives 20 s); the installer does
+this automatically and verifies the trigger count afterwards.
 
 Stage 1 failures usually look like a `.dat` file that simply never changes. Two causes have
 been seen in the field:
