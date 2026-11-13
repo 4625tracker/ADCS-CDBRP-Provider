@@ -1,13 +1,17 @@
 // OcspConfig.cpp —— 多 CA 配置工具（OcspConfig.exe）
 //
-// 用途：给 OcspDbProvider 批量/逐个 CA 配置快照路径与状态码映射，并显示每个 CA 的
-// 快照状态（路径、是否存在、行数、修改时间）。配置读写与提供程序共用 OcspDbConfig，
-// 因此两边对 provider.ini 的理解永远一致。
+// 用途：给 OcspDbProvider 配置每个 CA 的快照路径、检查间隔与 OCSP 响应有效期，并显示
+// 快照状态（路径、是否存在、行数、修改时间、多久没更新）。配置读写与提供程序共用
+// OcspDbConfig，因此两边对 provider.ini 的理解永远一致。
+//
+// 2.2.0 起界面只暴露「CA 与快照」和「OCSP 应答」两组真正天天要改的东西；
+// 状态码映射（validstatus/revokedstatus/unknownstatus）留在 provider.ini 里，
+// 命令行仍可用 --set --valid/--revoked/--unknown 修改。
 //
 // 用法：
 //   OcspConfig.exe                          打开图形界面
 //   OcspConfig.exe --dump                   打印所有 CA 的生效配置与快照状态
-//   OcspConfig.exe --set <ca> [--snapshot <path>] [--check N] [--valid N] [--revoked N] [--unknown N]
+//   OcspConfig.exe --set <ca> [--snapshot <path>] [--check N] [--valid N] [--revoked N] [--unknown N] [--response N]
 //                                           非交互修改单个 CA（未给出的项保持原生效值）
 //   OcspConfig.exe --remove <ca>            删除该 CA 的分段
 //   OcspConfig.exe --selftest               打开窗口、导出控件树、自动关闭（无头冒烟测试）
@@ -122,14 +126,55 @@ static std::wstring StateText(const std::wstring &ca, const Settings &st)
             text += buf;
         }
     }
-    _snwprintf_s(buf, _countof(buf), _TRUNCATE, Tr(L"缓存：%d 秒\r\n", L"Cache: %d s\r\n"), st.checkSeconds);
+    _snwprintf_s(buf, _countof(buf), _TRUNCATE, Tr(L"检查间隔：%d 秒\r\n", L"Check interval: %d s\r\n"), st.checkSeconds);
     text += buf;
-    _snwprintf_s(buf, _countof(buf), _TRUNCATE, Tr(L"状态码：有效=%d 已吊销=%d 未知=%d\r\n",
-                                                   L"Status codes: valid=%d revoked=%d unknown=%d\r\n"),
-                 st.validStatus, st.revokedStatus, st.unknownStatus);
+    _snwprintf_s(buf, _countof(buf), _TRUNCATE, Tr(L"响应有效期：%d 秒\r\n", L"Response lifetime: %d s\r\n"),
+                 st.responseSeconds);
     text += buf;
+
+    // 快照多久没更新了：这是"吊销了但看不到"最常见的原因，所以直接给出秒数并在过期时报警。
+    if (s.exists && s.hasMtime) {
+        FILETIME ftWrite;
+        GetSystemTimeAsFileTime(&ftWrite);
+        ULARGE_INTEGER now, write;
+        now.LowPart = ftWrite.dwLowDateTime;   now.HighPart = ftWrite.dwHighDateTime;
+        // 用文件的 UTC 修改时间算差值（本地时间已转换过，这里重新取一次以免时区干扰）
+        WIN32_FILE_ATTRIBUTE_DATA fad;
+        if (GetFileAttributesExW(st.snapshot.c_str(), GetFileExInfoStandard, &fad)) {
+            write.LowPart = fad.ftLastWriteTime.dwLowDateTime;
+            write.HighPart = fad.ftLastWriteTime.dwHighDateTime;
+            unsigned long long age = (now.QuadPart > write.QuadPart)
+                                     ? (now.QuadPart - write.QuadPart) / 10000000ULL : 0ULL;
+            _snwprintf_s(buf, _countof(buf), _TRUNCATE,
+                         Tr(L"上次写入：%llu 秒前\r\n", L"Last write: %llu s ago\r\n"), age);
+            text += buf;
+            if (age > 180) {
+                _snwprintf_s(buf, _countof(buf), _TRUNCATE,
+                             Tr(L"警告：快照已经 %llu 秒没有更新，同步任务可能已经停止。\r\n",
+                                L"Warning: the snapshot has not changed for %llu s; the sync task may have stopped.\r\n"),
+                             age);
+                text += buf;
+            }
+        }
+    }
+
     if (!s.hint.empty()) { text += L"\r\n"; text += s.hint; }
     return text;
+}
+
+// 把「响应有效期」换算成用户真正关心的一句话：客户端最迟多久能看到新状态。
+static void UpdateLatencyLabel(HWND hDlg)
+{
+    BOOL ok = FALSE;
+    int resp = (int)GetDlgItemInt(hDlg, IDC_EDIT_RESP, &ok, FALSE);
+    if (!ok || resp <= 0) resp = 30;
+    if (resp < 10) resp = 10;
+    if (resp > 3600) resp = 3600;
+    wchar_t text[256];
+    _snwprintf_s(text, _countof(text), _TRUNCATE,
+                 Tr(L"客户端最迟约 %d 秒后看到新的吊销状态。",
+                    L"Clients see a new revocation state after about %d s at most."), resp);
+    SetDlgItemTextW(hDlg, IDC_STATIC_LATENCY, text);
 }
 
 // ------------------------------------------------------------------ CA 发现
@@ -221,12 +266,9 @@ static void LoadCaIntoFields(HWND hDlg, const std::wstring &ca)
     wchar_t num[16];
     _snwprintf_s(num, _countof(num), _TRUNCATE, L"%d", st.checkSeconds);
     SetDlgItemTextW(hDlg, IDC_EDIT_CHECK, num);
-    _snwprintf_s(num, _countof(num), _TRUNCATE, L"%d", st.validStatus);
-    SetDlgItemTextW(hDlg, IDC_EDIT_VALID, num);
-    _snwprintf_s(num, _countof(num), _TRUNCATE, L"%d", st.revokedStatus);
-    SetDlgItemTextW(hDlg, IDC_EDIT_REVOKED, num);
-    _snwprintf_s(num, _countof(num), _TRUNCATE, L"%d", st.unknownStatus);
-    SetDlgItemTextW(hDlg, IDC_EDIT_UNKNOWN, num);
+    _snwprintf_s(num, _countof(num), _TRUNCATE, L"%d", st.responseSeconds);
+    SetDlgItemTextW(hDlg, IDC_EDIT_RESP, num);
+    UpdateLatencyLabel(hDlg);
     SetDlgItemTextW(hDlg, IDC_STATIC_STATE, StateText(ca, st).c_str());
 }
 
@@ -237,18 +279,20 @@ static std::wstring CurrentCa(HWND hDlg)
     return std::wstring(buf);
 }
 
-static Settings ReadFields(HWND hDlg)
+// 只读取界面上真正暴露的三项；状态码映射不经过界面，保持 provider.ini 里的原值，
+// 否则一次「保存」就会把用户在文件里手写的 validstatus/revokedstatus/unknownstatus 冲掉。
+static Settings ReadFields(HWND hDlg, const std::wstring &ca)
 {
-    Settings st;
+    Settings st = ConfigEffectiveFor(ca);
     wchar_t path[MAX_PATH * 3] = {0};
     GetDlgItemTextW(hDlg, IDC_EDIT_SNAP, path, _countof(path));
     st.snapshot = path;
-    st.checkSeconds  = (int)GetDlgItemInt(hDlg, IDC_EDIT_CHECK,   NULL, FALSE);
-    st.validStatus   = (int)GetDlgItemInt(hDlg, IDC_EDIT_VALID,   NULL, FALSE);
-    st.revokedStatus = (int)GetDlgItemInt(hDlg, IDC_EDIT_REVOKED, NULL, FALSE);
-    st.unknownStatus = (int)GetDlgItemInt(hDlg, IDC_EDIT_UNKNOWN, NULL, FALSE);
+    st.checkSeconds  = (int)GetDlgItemInt(hDlg, IDC_EDIT_CHECK, NULL, FALSE);
+    st.responseSeconds = (int)GetDlgItemInt(hDlg, IDC_EDIT_RESP, NULL, FALSE);
     if (st.checkSeconds < 0) st.checkSeconds = 0;
     if (st.checkSeconds > 3600) st.checkSeconds = 3600;
+    if (st.responseSeconds < 10) st.responseSeconds = 10;
+    if (st.responseSeconds > 3600) st.responseSeconds = 3600;
     return st;
 }
 
@@ -304,6 +348,27 @@ static INT_PTR CALLBACK ManageDlgProc(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp)
             RefreshList(hDlg, ui, CurrentCa(hDlg));
             return TRUE;
 
+        // 「响应有效期」输入框实时更新下面那句"客户端最迟多久看到"。
+        case IDC_EDIT_RESP:
+            if (HIWORD(wp) == EN_CHANGE) UpdateLatencyLabel(hDlg);
+            return TRUE;
+
+        // 常用预设：10 / 20 / 30 / 60 秒
+        case IDC_BTN_P10:
+        case IDC_BTN_P20:
+        case IDC_BTN_P30:
+        case IDC_BTN_P60:
+        {
+            int preset = (LOWORD(wp) == IDC_BTN_P10) ? 10
+                       : (LOWORD(wp) == IDC_BTN_P20) ? 20
+                       : (LOWORD(wp) == IDC_BTN_P30) ? 30 : 60;
+            wchar_t num[16];
+            _snwprintf_s(num, _countof(num), _TRUNCATE, L"%d", preset);
+            SetDlgItemTextW(hDlg, IDC_EDIT_RESP, num);
+            UpdateLatencyLabel(hDlg);
+            return TRUE;
+        }
+
         case IDC_BTN_BROWSE:
         {
             wchar_t path[MAX_PATH * 3] = {0};
@@ -333,7 +398,7 @@ static INT_PTR CALLBACK ManageDlgProc(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp)
                             Tr(L"多 CA 配置", L"Multi-CA configuration"), MB_ICONWARNING);
                 return TRUE;
             }
-            Settings st = ReadFields(hDlg);
+            Settings st = ReadFields(hDlg, ca);
             if (st.snapshot.empty()) {
                 MessageBoxW(hDlg, Tr(L"快照文件路径不能为空。", L"The snapshot path cannot be empty."),
                             Tr(L"多 CA 配置", L"Multi-CA configuration"), MB_ICONWARNING);
@@ -348,8 +413,9 @@ static INT_PTR CALLBACK ManageDlgProc(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp)
             ConfigReload();
             RefreshList(hDlg, ui, ca);
             LoadCaIntoFields(hDlg, ca);
-            MessageBoxW(hDlg, Tr(L"已保存。重启 OCSPSvc 后提供程序才能读到新配置。",
-                                 L"Saved. Restart OCSPSvc so the provider picks up the new configuration."),
+            MessageBoxW(hDlg, Tr(L"已保存，约 2 秒内自动生效（提供程序会按修改时间重新加载，不需要重启 OCSPSvc）。",
+                                 L"Saved. It takes effect within about 2 seconds: the provider reloads on the file's "
+                                 L"modification time, so OCSPSvc does not need to be restarted."),
                         Tr(L"多 CA 配置", L"Multi-CA configuration"), MB_ICONINFORMATION);
             return TRUE;
         }
@@ -446,7 +512,7 @@ static int SetCa(const std::wstring &ca, const Settings &overrides, bool hasSnap
 
 static void PrintHelp()
 {
-    Print(L"OcspConfig 2.1.1 - multi-CA configuration for the OCSP CA database revocation provider");
+    Print(L"OcspConfig 2.2.0 - multi-CA configuration for the OCSP CA database revocation provider");
     Print(L"");
     Print(L"  OcspConfig.exe                       open the GUI");
     Print(L"  OcspConfig.exe --dump                print every CA with its effective settings");
@@ -454,6 +520,10 @@ static void PrintHelp()
     Print(L"  OcspConfig.exe --remove <ca>         delete that CA section");
     Print(L"  OcspConfig.exe --selftest            open, dump controls, close");
     Print(L"  OcspConfig.exe --lang zh|en          force the UI language");
+    Print(L"");
+    Print(L"The GUI exposes the CA snapshot, the check interval and the OCSP response lifetime.");
+    Print(L"Status-code mapping (validstatus/revokedstatus/unknownstatus) is provider.ini only,");
+    Print(L"so --set --valid/--revoked/--unknown are the way to change it from the command line.");
 }
 
 static int RunApp(int argc, wchar_t **argv)

@@ -83,6 +83,10 @@ openssl ocsp -issuer ca.cer -serial 0x6200000003CC4141256F50414D000000000003 \
   -url http://<responder>:<port>/ocsp -CAfile ca.cer -no_nonce
 ```
 
+> `-no_nonce` is mandatory, not cosmetic: the responder answers any nonce-bearing request
+> with `unauthorized(6)` (5-byte body `30 03 0A 01 06`) before this provider is ever called.
+> See [OCSP-NONCE.md](OCSP-NONCE.md).
+
 Expected: `Response verify OK`, `Cert Status: revoked`, with the revocation time and reason
 matching the CA database. A serial that is not in the database is answered according to
 `unknownstatus`.
@@ -97,22 +101,31 @@ the *Online Responder* MMC snap-in, or the same dialog without MMC:
 ```
 
 For several CAs, use the dedicated editor — it lists every CA (from the responder and from
-`provider.ini`), edits one CA at a time and shows that CA's snapshot state:
+`provider.ini`), and groups the per-CA settings into **CA and snapshot** (snapshot path, check
+interval, and the live snapshot state including how long ago the sync task last wrote it) and
+**OCSP response** (the response lifetime, i.e. `responseseconds`, with 10/20/30/60 presets).
 
 ```powershell
 & "$env:ProgramData\OcspDbProvider\OcspConfig.exe"
 ```
+
+The three status-code mappings are deliberately not in the UI — they live in `provider.ini` and
+a save never rewrites them, so a hand-edited mapping survives every GUI change.
 
 Headless equivalents for scripting:
 
 ```powershell
 $cfg = "$env:ProgramData\OcspDbProvider\OcspConfig.exe"
 & $cfg --dump
-& $cfg --set 'SRV1\CORP-CA' --snapshot 'C:\data\CORP-CA.dat' --check 2 --unknown 2
+& $cfg --set 'SRV1\CORP-CA' --snapshot 'C:\data\CORP-CA.dat' --check 2 --response 20
+& $cfg --set 'SRV1\CORP-CA' --unknown 2      # status codes stay on the CLI
 & $cfg --remove 'SRV1\OLD-CA'
 ```
 
-After editing the file by hand, restart the service:
+Editing `provider.ini` by hand — through the GUI or in an editor — takes effect in about two
+seconds: the provider reloads the file when its modification time changes (throttled to one
+check every 2 s). Restarting `OCSPSvc` is **not** required for configuration changes; restart it
+only after replacing the DLL or changing the responder registration:
 
 ```powershell
 Restart-Service OCSPSvc -Force
@@ -147,6 +160,7 @@ the built-in `{4956d17f-88fd-4198-b287-1e6e65883b19}`).
 | Symptom | Check |
 |---|---|
 | every OCSP request `unauthorized` | `ProviderCLSID` actually switched? DLL registered? event log for `0xD34089B` / `0xD3D089B` |
+| only **nonce-bearing** requests `unauthorized`, body exactly 5 bytes `30 03 0A 01 06` | responder nonce policy, not this provider — add `-no_nonce`; see [OCSP-NONCE.md](OCSP-NONCE.md) |
 | `500` + `Application Error 1000` / `0xc0000374` | provider returned a byte buffer where a VARIANT `SAFEARRAY` is expected |
 | `This Update: Bad time value` | `RevStatusInfo` packing (must be 40 bytes) |
 | every serial answered `good` | snapshot empty / unreadable → `provider-native.log`, task state, `data\*.dat` size |

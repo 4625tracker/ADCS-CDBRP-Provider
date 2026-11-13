@@ -25,7 +25,7 @@
 
 也就是说：微软承认这个接口存在、承认它叫这个名字，但**没有给出任何定义**。
 
-## 2. 真正有用的四份官方资料
+## 2. 真正有用的五份官方资料
 
 ### 2.1 配置数据的形状 —— `IOCSPCAConfiguration::ProviderProperties`
 
@@ -85,6 +85,16 @@ marshal 的 `VARIANT` —— 也就是说，`cb` 在这里往往**不是字节�
 
 2008 R2 时代的部署/配置文档（只有运维向，没有 SDK 内容）：
 <https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2008-r2-and-2008/cc731099(v=ws.10)>
+
+### 2.5 协议文档（解释"为什么响应程序拒 nonce"时唯一能用的一份）
+
+- [[MS-OCSP] §3.2.5 Processing Events and Sequencing Rules](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-ocsp/a720a740-4b32-4051-9cb6-324390d02602)
+  —— 第 8 条明确写了 Nonce Policy 为 `Not Allowed` 时回 `unauthorized`，是本文档里
+  "nonce 不是 bug" 的官方依据。
+- [[MS-OCSPA] §3.2.1.2 ResponderProperties](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-ocspa/c8894946-8439-4285-9515-f575620cc0af)
+  —— 响应程序服务属性的完整清单；反证"没有 nonce 策略属性可配"。
+
+实测与机制见 [OCSP-NONCE.md](OCSP-NONCE.md)。
 
 ## 3. 缺的那部分
 

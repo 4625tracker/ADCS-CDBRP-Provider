@@ -88,15 +88,32 @@ Download `ADCS-CDBRP-Provider-Setup-<version>-<arch>.exe` from
 against `SHA256SUMS.txt`, then run it **as administrator**:
 
 ```powershell
-.\ADCS-CDBRP-Provider-Setup-2.0.0-x64.exe                 # install (does not switch the responder)
-.\ADCS-CDBRP-Provider-Setup-2.0.0-x64.exe -Mode activate  # switch the responder to this provider
-.\ADCS-CDBRP-Provider-Setup-2.0.0-x64.exe -Mode status    # read-only overview, no elevation
+.\ADCS-CDBRP-Provider-Setup-2.2.0-x64.exe                 # install (does not switch the responder)
+.\ADCS-CDBRP-Provider-Setup-2.2.0-x64.exe -Mode activate  # switch the responder to this provider
+.\ADCS-CDBRP-Provider-Setup-2.2.0-x64.exe -Mode status    # read-only overview, no elevation
+.\ADCS-CDBRP-Provider-Setup-2.2.0-x64.exe -Mode detect    # what an install would do here, no changes
 ```
 
 The setup embeds the DLL, `uitest.exe`, the scripts and the license; it extracts to a temp
 directory and runs the same `install.ps1` described below, so there is only one install
-implementation. `--help`, `--list` and `--extract-only <dir>` work without elevation.
-The setup executables are unsigned — check the checksum before running.
+implementation. `--help`, `--list`, `--extract-only <dir>` and `-Mode detect` work without
+elevation. The setup executables are unsigned — check the checksum before running.
+
+**Upgrading is just running the new setup again.** When an installation is already present the
+setup says so and reinstalls over it instead of starting from scratch:
+
+* `provider.ini` and the snapshots are **kept** (the ini is also copied to
+  `<InstallDir>\backup\provider.ini.bak-<stamp>` before anything is touched);
+* the running `OCSPSvc` is stopped, the DLL is replaced (a still-mapped old DLL is parked as
+  `OcspDbProvider.dll.locked-<stamp>-<n>`, the two newest are kept), COM is re-registered and
+  verified, the scheduled task is re-created and the service is started again;
+* if the responder already points at this provider it stays pointed at it, and the restarted
+  service picks up the new DLL;
+* the result is verified with `uitest.exe info` — a machine whose provider cannot initialize
+  says so instead of failing silently.
+
+`-Mode detect` prints the same decision without touching anything, which is the quickest way to
+see whether a host already has the provider and whether the responder is using it.
 
 ### From source
 
@@ -127,6 +144,11 @@ openssl ocsp -issuer ca.cer -serial 0x6200000003CC4141256F50414D000000000003 \
   -url http://<responder>:<port>/ocsp -CAfile ca.cer -no_nonce
 # Response verify OK
 ```
+
+`-no_nonce` is required: the Windows responder rejects any request carrying an OCSP nonce
+with `unauthorized(6)` (a 5-byte body `30 03 0A 01 06`), including requests that never reach
+this provider. `certutil` and CryptoAPI clients do not send a nonce, so they are unaffected.
+See [docs/OCSP-NONCE.md](docs/OCSP-NONCE.md) for the evidence and the mechanism.
 
 ## Configuration
 
@@ -168,17 +190,28 @@ A flat file with no sections is also accepted (legacy 1.x layout) and applies to
 & "$env:ProgramData\OcspDbProvider\OcspConfig.exe"
 ```
 
-It lists the CAs found in the responder configuration and in `provider.ini`, lets you edit
-the snapshot path, cache seconds and the three status codes per CA, and shows the live state
-of that CA's snapshot (resolved path, whether the file exists, its size, parsable rows and
-modification time). Saving only touches that CA's `[ca:<id>]` section; removing one only
-drops that section.
+It lists the CAs found in the responder configuration and in `provider.ini` and groups the
+per-CA settings into the two things you actually tune:
+
+* **CA and snapshot** — CA name, snapshot path (with Browse), the check interval in seconds and
+  the live state of that snapshot (resolved path, whether the file exists, its size, parsable
+  rows, modification time, and how long ago the sync task last wrote it).
+* **OCSP response** — the response lifetime (`responseseconds`) with 10 / 20 / 30 / 60 presets,
+  plus a line that spells out the resulting client-visible delay. Smaller means revocation
+  shows up sooner; larger means less signing and traffic.
+
+The three status-code mappings (`validstatus` / `revokedstatus` / `unknownstatus`) are **not**
+in the UI: they stay in `provider.ini` and are never rewritten by a save, so a hand-edited
+mapping survives every GUI change. Saving only touches that CA's `[ca:<id>]` section; removing
+one only drops that section. Changes take effect in about two seconds (the provider reloads
+`provider.ini` on its modification time; restarting `OCSPSvc` is not required).
 
 The same operations are scriptable:
 
 ```powershell
 OcspConfig.exe --dump
-OcspConfig.exe --set CORP-A --snapshot C:\data\CORP-A.dat --unknown 2
+OcspConfig.exe --set CORP-A --snapshot C:\data\CORP-A.dat --response 20
+OcspConfig.exe --set CORP-A --unknown 2        # status codes stay on the CLI
 OcspConfig.exe --remove CORP-B
 ```
 
@@ -200,7 +233,7 @@ src/native/            provider DLL, config model (shared), self-test harness, O
 src/setup/             setup EXE: embedded payload, self-elevation, runs install.ps1
 src/legacy/managed/    earlier managed (.NET) prototype, unsupported
 scripts/               build, build-installer, install, uninstall, sync, test, release
-docs/                  architecture, deployment, compatibility, reverse-engineering
+docs/                  architecture, deployment, compatibility, nonce, reverse-engineering
 test/                  helpers to build a throw-away test PKI
 dist/                  release artifacts (generated, not committed)
 ```
@@ -212,6 +245,7 @@ dist/                  release artifacts (generated, not committed)
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Interfaces, structures, data flow, multi-CA model |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Install, activate, verify, roll back, troubleshoot |
 | [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) | OS/arch/toolchain matrix, migration from 1.x |
+| [docs/OCSP-NONCE.md](docs/OCSP-NONCE.md) | Why the nonce extension is rejected, with measurements |
 | [docs/REVERSE-ENGINEERING.md](docs/REVERSE-ENGINEERING.md)（附 [docs/REFERENCES.md](docs/REFERENCES.md)：官方文档覆盖到哪、哪些只能逆向） | Recovered COM contract and the traps |
 
 ## Troubleshooting
@@ -219,6 +253,7 @@ dist/                  release artifacts (generated, not committed)
 | Symptom | Cause |
 |---|---|
 | Every request returns `unauthorized` | Provider not registered / `ProviderCLSID` not switched / responder cannot read the CA |
+| Only nonce-bearing requests return `unauthorized` (5-byte body `30 03 0A 01 06`) | Responder nonce policy — send `-no_nonce`; see [docs/OCSP-NONCE.md](docs/OCSP-NONCE.md) |
 | Every request returns `500` with a heap corruption event | `GetConfigInformation` returned a byte buffer instead of a VARIANT-carried `SAFEARRAY` |
 | `This Update: Bad time value` in the OCSP response | `RevStatusInfo` not packed to 1 byte (48 instead of 40 bytes) |
 | All serials answered as `good` | Snapshot empty or unreadable; check `provider-native.log` and the task state |

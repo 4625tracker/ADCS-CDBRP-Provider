@@ -23,8 +23,17 @@
     sync        refresh the snapshot now
     selftest    run uitest.exe against the installed DLL (no MMC needed)
 
+.PARAMETER Reinstall
+    Install over an existing installation. provider.ini and the snapshots are kept, the ini is
+    backed up to <InstallDir>\\backup first, stale parked DLLs are pruned and the result is
+    verified with uitest.exe. Setup.exe turns -Mode install into a reinstall automatically when
+    it finds an existing installation.
+
 .EXAMPLE
     pwsh -File scripts/install.ps1 -Mode install
+
+.EXAMPLE
+    pwsh -File scripts/install.ps1 -Mode install -Reinstall
 
 .EXAMPLE
     pwsh -File scripts/install.ps1 -Mode install -CAConfig 'SRV1\CORP-CA' -Arch x64
@@ -57,6 +66,11 @@ param(
     # Remove the install directory during -Mode uninstall
     [switch]$RemoveFiles,
 
+    # Install over an existing installation: keep provider.ini and the snapshots, back the ini
+    # up first, prune stale parked DLLs and verify the result with uitest.exe. Setup.exe passes
+    # this automatically when it finds an existing installation.
+    [switch]$Reinstall,
+
     # Optional: existing 1.x provider directory to migrate a snapshot/config from.
     # Nothing is assumed by default; pass it explicitly, e.g. -MigrationSource 'D:\old\ocsp'
     [string]$MigrationSource = ''
@@ -75,6 +89,7 @@ $DllPath       = Join-Path $InstallDir 'OcspDbProvider.dll'
 $IniPath       = Join-Path $InstallDir 'provider.ini'
 $DataDir       = Join-Path $InstallDir 'data'
 $BackupPath    = Join-Path $InstallDir 'rollback.txt'
+$BackupDir     = Join-Path $InstallDir 'backup'
 
 function Test-Admin {
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -169,6 +184,54 @@ function Start-OcspStack {
 function Get-ProviderClsid([string]$ca) {
     $p = Join-Path (Join-Path $ResponderRoot $ca) 'ProviderCLSID'
     return (Get-ItemProperty -Path $p -ErrorAction SilentlyContinue).ProviderCLSID
+}
+
+# ------------------------------------------------------------------ reinstall helpers
+
+# The [ca:...] sections are the only record of which CA an installation serves when the
+# responder has not been switched to this provider yet. A reinstall falls back to them.
+function Get-IniCas {
+    if (-not (Test-Path -LiteralPath $IniPath)) { return @() }
+    $ids = New-Object System.Collections.Generic.List[string]
+    foreach ($line in (Get-Content -LiteralPath $IniPath)) {
+        if ($line -match '^\s*\[ca:(.+?)\]\s*$') { $ids.Add($Matches[1]) }
+    }
+    return $ids
+}
+
+function Backup-Ini {
+    if (-not (Test-Path -LiteralPath $IniPath)) { return '' }
+    New-Item -ItemType Directory -Force -Path $BackupDir | Out-Null
+    $dest = Join-Path $BackupDir ('provider.ini.bak-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Copy-Item -LiteralPath $IniPath -Destination $dest -Force
+    Write-Ok ('provider.ini backed up: ' + $dest)
+    return $dest
+}
+
+# A responder or an open MMC snap-in keeps the old DLL mapped, so upgrades park it instead of
+# deleting it. Keep the two newest (a rollback aid) and drop the rest.
+function Remove-StaleParkedDlls {
+    $parked = @(Get-ChildItem -LiteralPath $InstallDir -Filter 'OcspDbProvider.dll.locked-*' -ErrorAction SilentlyContinue |
+                Sort-Object LastWriteTime -Descending)
+    if ($parked.Count -le 2) { return }
+    foreach ($f in @($parked | Select-Object -Skip 2)) {
+        Remove-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue
+    }
+    Write-Ok ('removed {0} stale parked DLL(s)' -f ($parked.Count - 2))
+}
+
+# The reinstall is only successful if the DLL still loads and answers over COM. A missing CA
+# is not an error here (the responder may not be configured yet), so this only warns.
+function Invoke-HealthCheck([string]$ca) {
+    $uit = Join-Path $InstallDir 'uitest.exe'
+    if (-not (Test-Path -LiteralPath $uit)) { Write-Warn2 'uitest.exe missing; health check skipped'; return }
+    $uitArgs = @('info')
+    if (-not [string]::IsNullOrEmpty($ca)) { $uitArgs += @('-ca', $ca) }
+    $out = & $uit @uitArgs 2>&1
+    $rc = $LASTEXITCODE
+    foreach ($line in @($out | Select-Object -Last 4)) { Write-Host ('    ' + $line) }
+    if ($rc -eq 0) { Write-Ok 'health check: provider answers' }
+    else { Write-Warn2 ('health check: uitest exit ' + $rc + ' (the responder may need a restart)') }
 }
 
 function Write-Ini([string]$ca) {
@@ -335,7 +398,29 @@ switch ($Mode) {
     'install' {
         if (-not (Test-Admin)) { throw 'install requires an elevated (administrator) PowerShell.' }
 
+        # Running the installer again on an installed machine is the normal upgrade path.
+        $wasInstalled = (Test-Path -LiteralPath $DllPath) -or
+            [bool](Get-ItemProperty ('HKLM:\SOFTWARE\Classes\CLSID\' + $ProviderCLSID + '\InprocServer32') -ErrorAction SilentlyContinue)
+        if ($Reinstall -or $wasInstalled) {
+            Write-Step 'reinstall'
+            if ($wasInstalled) {
+                Write-Ok 'existing installation found; provider.ini and snapshots are kept'
+                $null = Backup-Ini
+            } else {
+                Write-Warn2 '-Reinstall was given but nothing is installed; continuing as a fresh install'
+            }
+        }
+
         $ca = Resolve-CA
+        if ([string]::IsNullOrEmpty($ca)) {
+            # Not switched to this provider yet (or no responder at all): reuse what the
+            # existing provider.ini already serves, so the scheduled task keeps its CA.
+            $iniCas = @(Get-IniCas)
+            if ($iniCas.Count -gt 0) {
+                $ca = $iniCas[0].Split('\')[-1]
+                Write-Warn2 ('no responder CA found; using the CA recorded in provider.ini: ' + $ca)
+            }
+        }
         $caConfig = Get-CaConfigString $ca
         if ([string]::IsNullOrEmpty($ca)) {
             Write-Warn2 'no OCSP responder CA found; snapshot must be produced manually (see -Mode sync -CAConfig).'
@@ -427,9 +512,19 @@ switch ($Mode) {
         }
 
         Start-OcspStack
+        Remove-StaleParkedDlls
+        Write-Step 'verify'
+        Invoke-HealthCheck $ca
         Write-Host ''
-        Write-Host '=== installed (responder NOT switched yet) ===' -ForegroundColor Green
-        Write-Host "    next:  pwsh -File scripts/install.ps1 -Mode activate"
+        if ($Reinstall -or $wasInstalled) {
+            Write-Host '=== reinstalled (configuration and snapshots kept) ===' -ForegroundColor Green
+        } else {
+            Write-Host '=== installed (responder NOT switched yet) ===' -ForegroundColor Green
+            Write-Host "    next:  pwsh -File scripts/install.ps1 -Mode activate"
+        }
+        if ((Get-ProviderClsid $ca) -eq $ProviderCLSID) {
+            Write-Host '    responder already points at this provider; the restarted service picks the new DLL up.'
+        }
     }
 
     'activate' {

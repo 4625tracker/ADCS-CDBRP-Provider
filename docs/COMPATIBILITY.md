@@ -80,7 +80,14 @@ pwsh -File scripts/install.ps1 -Mode install -MigrationSource 'D:\old-provider-d
 | Config storage | `Responder\<CA>\Provider` | the same key, plus `provider.ini` |
 
 The OCSP response itself is still signed by the responder; the provider only supplies
-per-serial status. Nonces are handled by `ocspsvc.exe`.
+per-serial status.
+
+**Nonces are not supported**, by the responder rather than by this provider: a request
+carrying `id-pkix-ocsp-nonce` is answered with `unauthorized(6)` (a 5-byte body), and the
+request never reaches the provider. Unknown extensions are ignored normally — only the
+nonce OID is rejected, and there is no configuration switch for it. Use `-no_nonce` with
+openssl; `certutil` / CryptoAPI clients do not send a nonce. Details, evidence and the
+reproduction steps are in [OCSP-NONCE.md](OCSP-NONCE.md).
 
 ## 6. Configuration reference
 
@@ -117,3 +124,9 @@ Environment overrides (mainly for testing and relocated installs):
   restricted by policy, adjust the task to call `sync.ps1` through an approved launcher.
 - The provider does not implement a CRL fallback: if the snapshot is missing, every serial
   is answered with `unknownstatus`.
+- **OCSP nonce is not supported** (responder-side policy, see [OCSP-NONCE.md](OCSP-NONCE.md)).
+  A client that insists on nonce — `openssl ocsp` without `-no_nonce`, and some browsers —
+  gets `unauthorized(6)`. Windows clients (`certutil`, CryptoAPI, .NET) do not send a nonce
+  and are unaffected. There is no registry setting or documented property that turns it on;
+  supporting it would require a re-signing gateway in front of the responder, which this
+  repository does not include.

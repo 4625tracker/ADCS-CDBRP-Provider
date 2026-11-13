@@ -10,6 +10,7 @@
 //
 // 用法：
 //   Setup.exe                       等价于 -Mode install
+//   Setup.exe -Mode reinstall       在已安装的机器上重装（保留 provider.ini 与快照）
 //   Setup.exe -Mode activate        切换响应程序到本提供程序
 //   Setup.exe -Mode deactivate      回滚到内置 CRL 提供程序
 //   Setup.exe -Mode uninstall       卸载（加 -RemoveFiles 连文件一起删）
@@ -172,6 +173,83 @@ static bool NeedsConfirm(const std::wstring &mode)
     return mode == L"install" || mode == L"uninstall";
 }
 
+// ------------------------------------------------------------------ 已安装检测
+//
+// 只读注册表，不需要管理员：判断"这台机器上已经装过了吗"，以及响应程序现在
+// 到底跑的是本提供程序还是内置的 CRL 提供程序。Setup.exe 据此自动走重装流程
+// （-Reinstall 透传给 install.ps1），用户不用先卸载。
+
+struct ExistingInstall {
+    bool installed;
+    std::wstring dir;           // HKLM\SOFTWARE\OcspDbProvider\InstallDir
+    std::wstring clsidPath;     // InprocServer32 指向的 DLL
+    std::wstring iniPath;
+    bool iniPresent;
+    bool active;                // 某个响应程序 CA 的 ProviderCLSID 指向本提供程序
+    ExistingInstall() : installed(false), iniPresent(false), active(false) {}
+};
+
+static std::wstring RegGetString(HKEY root, const std::wstring &sub, const wchar_t *name)
+{
+    std::wstring out;
+    HKEY key = NULL;
+    if (RegOpenKeyExW(root, sub.c_str(), 0, KEY_READ | KEY_WOW64_64KEY, &key) != ERROR_SUCCESS)
+        return out;
+    DWORD type = 0, size = 0;
+    if (RegQueryValueExW(key, name, NULL, &type, NULL, &size) == ERROR_SUCCESS &&
+        (type == REG_SZ || type == REG_EXPAND_SZ) && size >= sizeof(wchar_t)) {
+        std::vector<wchar_t> buf(size / sizeof(wchar_t) + 1, 0);
+        DWORD got = size;
+        if (RegQueryValueExW(key, name, NULL, &type, (LPBYTE)buf.data(), &got) == ERROR_SUCCESS)
+            out = buf.data();
+    }
+    RegCloseKey(key);
+    return out;
+}
+
+static bool SameClsid(const std::wstring &a, const std::wstring &b)
+{
+    return _wcsicmp(a.c_str(), b.c_str()) == 0;
+}
+
+static ExistingInstall DetectExisting(const std::wstring &providerClsid)
+{
+    ExistingInstall x;
+
+    x.clsidPath = RegGetString(HKEY_CLASSES_ROOT,
+                               L"CLSID\\" + providerClsid + L"\\InprocServer32", L"");
+    x.dir = RegGetString(HKEY_LOCAL_MACHINE, L"SOFTWARE\\OcspDbProvider", L"InstallDir");
+    if (x.dir.empty() && !x.clsidPath.empty()) {
+        // Fall back to the directory the COM registration points at.
+        size_t pos = x.clsidPath.find_last_of(L"\\/");
+        if (pos != std::wstring::npos) x.dir = x.clsidPath.substr(0, pos);
+    }
+    if (!x.dir.empty()) {
+        x.iniPath = x.dir + L"\\provider.ini";
+        x.iniPresent = GetFileAttributesW(x.iniPath.c_str()) != INVALID_FILE_ATTRIBUTES;
+    }
+    x.installed = !x.clsidPath.empty() || !x.dir.empty();
+
+    // Which provider is the responder actually using right now?
+    const std::wstring responderRoot =
+        L"SYSTEM\\CurrentControlSet\\Services\\OCSPSvc\\Responder";
+    HKEY root = NULL;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, responderRoot.c_str(), 0,
+                      KEY_READ | KEY_WOW64_64KEY, &root) == ERROR_SUCCESS) {
+        for (DWORD i = 0;; i++) {
+            wchar_t name[512];
+            DWORD len = _countof(name);
+            if (RegEnumKeyExW(root, i, name, &len, NULL, NULL, NULL, NULL) != ERROR_SUCCESS)
+                break;
+            std::wstring clsid = RegGetString(HKEY_LOCAL_MACHINE,
+                                              responderRoot + L"\\" + name, L"ProviderCLSID");
+            if (SameClsid(clsid, providerClsid)) { x.active = true; break; }
+        }
+        RegCloseKey(root);
+    }
+    return x;
+}
+
 static int RunChild(const std::wstring &app, std::wstring cmdline)
 {
     STARTUPINFOW si;
@@ -234,8 +312,11 @@ static void PrintHelp()
     Print(L"");
     Print(L"  Setup.exe [options]");
     Print(L"");
-    Print(L"  -Mode install|activate|deactivate|uninstall|status|sync|selftest");
+    Print(L"  -Mode install|reinstall|detect|activate|deactivate|uninstall|status|sync|selftest");
     Print(L"                 (default: install)");
+    Print(L"  -Reinstall     install over an existing installation, keeping provider.ini and snapshots");
+    Print(L"                 (automatic: -Mode install turns into a reinstall when one is detected)");
+    Print(L"  -Mode detect   show what an install would do here (read-only, no elevation)");
     Print(L"  -CAConfig <ca> CA name or HOST\\CA-NAME (default: auto-detect)");
     Print(L"  -InstallDir <dir>  install directory (default: %%ProgramData%%\\OcspDbProvider)");
     Print(L"  -SyncPerMinute <1-6>  snapshot refreshes per minute (default 3, implemented as staggered triggers)");
@@ -262,6 +343,7 @@ int wmain(int argc, wchar_t **argv)
     bool quiet = false;
     bool keepTemp = false;
     bool listOnly = false;
+    bool reinstall = false;
 
     for (int i = 1; i < argc; i++) {
         std::wstring a = argv[i];
@@ -270,6 +352,7 @@ int wmain(int argc, wchar_t **argv)
         else if (a == L"--quiet" || a == L"-y") quiet = true;
         else if (a == L"--keep-temp") keepTemp = true;
         else if (a == L"-RemoveFiles") removeFiles = true;
+        else if (a == L"-Reinstall") reinstall = true;
         else if (a == L"-Mode" && i + 1 < argc) mode = argv[++i];
         else if (a == L"-CAConfig" && i + 1 < argc) caConfig = argv[++i];
         else if (a == L"-InstallDir" && i + 1 < argc) installDir = argv[++i];
@@ -278,8 +361,8 @@ int wmain(int argc, wchar_t **argv)
         else { Print(L"unknown option: %s (try --help)", a.c_str()); return 2; }
     }
 
-    const std::wstring validModes[] = { L"install", L"activate", L"deactivate", L"uninstall",
-                                        L"status", L"sync", L"selftest" };
+    const std::wstring validModes[] = { L"install", L"reinstall", L"detect", L"activate", L"deactivate",
+                                        L"uninstall", L"status", L"sync", L"selftest" };
     bool modeOk = false;
     for (int i = 0; i < (int)(sizeof(validModes) / sizeof(validModes[0])); i++)
         if (mode == validModes[i]) modeOk = true;
@@ -295,6 +378,47 @@ int wmain(int argc, wchar_t **argv)
     }
     if (!modeOk) { Print(L"invalid -Mode: %s (try --help)", mode.c_str()); return 2; }
 
+    // -Mode reinstall is install + the reinstall flag; install.ps1 only knows "install".
+    if (mode == L"reinstall") { mode = L"install"; reinstall = true; }
+
+    // Running the setup again on an installed machine is a normal upgrade path: detect it
+    // here, tell the user what will happen, and let install.ps1 do the actual reinstall.
+    const std::wstring kProviderClsid = L"{7B0C4B1E-93A1-4C0F-9E52-0D2A6A5B41C9}";
+    ExistingInstall existing;
+    if (mode == L"install" || mode == L"detect") existing = DetectExisting(kProviderClsid);
+
+    // -Mode detect: read-only, no elevation, no payload extraction. Same view the installer uses.
+    if (mode == L"detect") {
+        Print(L"installation : %s", existing.installed ? L"present (install becomes a reinstall)"
+                                                       : L"not found (install is a fresh install)");
+        Print(L"install dir  : %s", existing.dir.empty() ? L"(unknown)" : existing.dir.c_str());
+        Print(L"COM server   : %s", existing.clsidPath.empty() ? L"(not registered)"
+                                                                : existing.clsidPath.c_str());
+        Print(L"provider.ini : %s", existing.iniPresent ? L"present" : L"missing");
+        Print(L"responder    : %s", existing.active ? L"this provider is active"
+                                                     : L"built-in CRL provider");
+        return 0;
+    }
+
+    const bool isReinstall = reinstall || existing.installed;
+    if (mode == L"install" && existing.installed) {
+        Print(L"existing installation detected:");
+        Print(L"  install dir : %s", existing.dir.empty() ? L"(unknown)" : existing.dir.c_str());
+        Print(L"  COM server  : %s",
+              existing.clsidPath.empty() ? L"(not registered)" : existing.clsidPath.c_str());
+        Print(L"  provider.ini: %s", existing.iniPresent ? L"present (kept as is)"
+                                                         : L"missing (will be created)");
+        Print(L"  responder   : %s", existing.active
+              ? L"this provider is active (stays active)"
+              : L"built-in CRL provider (activation state is not changed)");
+        Print(L"");
+        Print(L"reinstalling over the existing installation; configuration and snapshots are preserved.");
+        Print(L"");
+    } else if (reinstall && mode == L"install" && !existing.installed) {
+        Print(L"-Reinstall was given but nothing is installed here; doing a fresh install.");
+        Print(L"");
+    }
+
     // 目标目录
     std::wstring tempRoot;
     if (!extractOnly.empty()) {
@@ -309,7 +433,10 @@ int wmain(int argc, wchar_t **argv)
 
     Print(L"extracting payload to %s", tempRoot.c_str());
     RemoveTree(tempRoot);           // 上一次失败的残留
-    if (!EnsureDir(tempRoot)) { Print(L"cannot create %s", tempRoot.c_str()); return 4; }
+    if (!EnsureDir(tempRoot)) {
+        Print(L"cannot create %s (error %lu)", tempRoot.c_str(), GetLastError());
+        return 4;
+    }
 
     for (int i = 0; i < kPayloadCount; i++) {
         if (!ExtractOne(kPayload[i].id, tempRoot + L"\\" + kPayload[i].dest)) {
@@ -335,7 +462,9 @@ int wmain(int argc, wchar_t **argv)
     // 确认
     if (NeedsConfirm(mode) && !quiet) {
         Print(L"");
-        if (mode == L"install")
+        if (mode == L"install" && isReinstall)
+            Print(L"This will REINSTALL the OCSP CA-database revocation provider in:");
+        else if (mode == L"install")
             Print(L"This will install the OCSP CA-database revocation provider into:");
         else
             Print(L"This will UNINSTALL the provider from:");
@@ -358,6 +487,7 @@ int wmain(int argc, wchar_t **argv)
     if (!installDir.empty()) cmd += L" -InstallDir " + Quote(installDir);
     if (!syncPerMinute.empty()) cmd += L" -SyncPerMinute " + Quote(syncPerMinute);
     if (removeFiles)         cmd += L" -RemoveFiles";
+    if (mode == L"install" && isReinstall) cmd += L" -Reinstall";
 
     Print(L"");
     Print(L"running: install.ps1 -Mode %s", mode.c_str());

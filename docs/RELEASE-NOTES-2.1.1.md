@@ -51,6 +51,11 @@ ADCS-CDBRP-Provider-Setup-2.1.1-x64.exe -Mode install --quiet -CAConfig <你的 
 - `-SyncPerMinute 3` 意味着 `certutil -view` 每分钟跑 3 次。几百行的 CA 无感；**几十万条已签发
   证书的大 CA 建议 `-SyncPerMinute 1`**，并相应调大 `responseseconds`。
 - ARM64 仍未实测，所以不提供 ARM64 包。
+- **OCSP nonce 不支持**，这是响应程序本身的策略（不是本提供程序）：带 `id-pkix-ocsp-nonce`
+  的请求固定回 `unauthorized(6)`（响应体只有 5 字节 `30 03 0A 01 06`），请求根本不会到达
+  提供程序；换成未知扩展则照常应答，说明是专门识别 nonce 后拒绝。openssl 测试请加
+  `-no_nonce`（`certutil` / CryptoAPI 不发 nonce，不受影响）。证据、机制与复现步骤见
+  [OCSP-NONCE.md](OCSP-NONCE.md)。
 
 ## 完整变更
 

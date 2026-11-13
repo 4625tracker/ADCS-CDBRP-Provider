@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Local self-check for a built provider: resources, COM contract, snapshot lookup.
 
@@ -206,6 +206,16 @@ $null = Invoke-Cfg @('--set', 'CORP-A', '--response', '15')
 $null = cmd /c ('"{0}" verify DEADBEEF00000000000000000000000000000001 -dll "{1}" -ca CORP-A > "{2}" 2>&1' -f $Uit, $Dll, $verifyOut)
 $out = if (Test-Path $verifyOut) { Get-Content $verifyOut -Encoding UTF8 -Raw } else { '' }
 Check 'responseseconds drives the window' ($out -match 'window=15') $out
+
+# 2.2.0 UI: the response lifetime is editable in the dialog, the status-code boxes are gone.
+# The control dump needs an interactive desktop; skip quietly when there is none.
+$uiOut = Invoke-Cfg @('--selftest')
+if ($uiOut -match 'dialog rect') {
+    Check 'config UI: response lifetime control present' ($uiOut -match 'id=2014') $uiOut
+    Check 'config UI: status-code edits removed'         (-not ($uiOut -match 'id=200[678]\b')) $uiOut
+} else {
+    Write-Host '  SKIP config UI control dump (no interactive desktop)' -ForegroundColor Yellow
+}
 
 $out = Invoke-Cfg @('--remove', 'CORP-B')
 $out = Invoke-Cfg @('--dump')

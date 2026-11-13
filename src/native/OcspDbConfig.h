@@ -54,7 +54,7 @@ struct Settings {
     int revokedStatus = 1;
     int unknownStatus = 0;
     // 答复里 nextUpdate = now + responseSeconds。响应程序（以及客户端）会把这个答复缓存到
-    // nextUpdate 为止，所以它决定了"吊销多久能反映到 OCSP"，默认 60 秒。
+    // nextUpdate 为止，所以它决定了"吊销多久能反映到 OCSP"，默认 30 秒（下限 10、上限 3600）。
     int responseSeconds = 30;
 };
 

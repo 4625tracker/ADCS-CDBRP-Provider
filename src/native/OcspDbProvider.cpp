@@ -529,8 +529,9 @@ public:
         if (!pStatus) return E_POINTER;
         ZeroMemory(pStatus, sizeof(*pStatus));
 
-        // nextUpdate 是响应程序缓存这条答复的期限：设 30 分钟，吊销就已经在快照里了、
-        // 客户端拿到的还是半小时前的旧答复。默认 60 秒，让"一分钟内生效"真的成立。
+        // nextUpdate 是响应程序缓存这条答复的期限：以前写死 30 分钟，吊销已经在快照里了、
+        // 客户端拿到的还是半小时前的旧答复。现在由 provider.ini 的 responseseconds 驱动
+        // （默认 30 秒），让"一分钟内生效"真的成立。
         Settings cfg = ConfigEffectiveFor(m_caId);
         pStatus->ftThisUpdate  = FileTimeFromLongLong(FileTimeNow());
         pStatus->ftNextUpdate  = FileTimeFromNowSeconds(cfg.responseSeconds);
@@ -843,12 +844,8 @@ static INT_PTR CALLBACK ConfigDlgProc(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp)
         wchar_t num[16];
         _snwprintf_s(num, _countof(num), _TRUNCATE, L"%d", st->checkSeconds);
         SetDlgItemTextW(hDlg, IDC_EDIT_MAXAGE, num);
-        _snwprintf_s(num, _countof(num), _TRUNCATE, L"%d", st->validStatus);
-        SetDlgItemTextW(hDlg, IDC_EDIT_VALID, num);
-        _snwprintf_s(num, _countof(num), _TRUNCATE, L"%d", st->revokedStatus);
-        SetDlgItemTextW(hDlg, IDC_EDIT_REVOKED, num);
-        _snwprintf_s(num, _countof(num), _TRUNCATE, L"%d", st->unknownStatus);
-        SetDlgItemTextW(hDlg, IDC_EDIT_UNKNOWN, num);
+        _snwprintf_s(num, _countof(num), _TRUNCATE, L"%d", st->responseSeconds);
+        SetDlgItemTextW(hDlg, IDC_EDIT_RESP, num);
         SetDlgItemTextW(hDlg, IDC_STATIC_STATUS, BuildStatusText(ctx->caId).c_str());
 
         if (ctx->readOnly) {
@@ -856,9 +853,7 @@ static INT_PTR CALLBACK ConfigDlgProc(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp)
             EnableWindow(GetDlgItem(hDlg, IDC_EDIT_PATH), FALSE);
             EnableWindow(GetDlgItem(hDlg, IDC_BTN_BROWSE), FALSE);
             EnableWindow(GetDlgItem(hDlg, IDC_EDIT_MAXAGE), FALSE);
-            EnableWindow(GetDlgItem(hDlg, IDC_EDIT_VALID), FALSE);
-            EnableWindow(GetDlgItem(hDlg, IDC_EDIT_REVOKED), FALSE);
-            EnableWindow(GetDlgItem(hDlg, IDC_EDIT_UNKNOWN), FALSE);
+            EnableWindow(GetDlgItem(hDlg, IDC_EDIT_RESP), FALSE);
         }
 
         // 截图自检模式：OCSPDBPROVIDER_CAPTURE=1 时把窗口存成 BMP，然后自动点确定
@@ -921,11 +916,14 @@ static INT_PTR CALLBACK ConfigDlgProc(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp)
                 return TRUE;
             }
             st->snapshot = path;
-            st->checkSeconds  = GetDlgItemInt(hDlg, IDC_EDIT_MAXAGE,   NULL, FALSE);
-            st->validStatus   = GetDlgItemInt(hDlg, IDC_EDIT_VALID,    NULL, FALSE);
-            st->revokedStatus = GetDlgItemInt(hDlg, IDC_EDIT_REVOKED,  NULL, FALSE);
-            st->unknownStatus = GetDlgItemInt(hDlg, IDC_EDIT_UNKNOWN,  NULL, FALSE);
+            st->checkSeconds  = GetDlgItemInt(hDlg, IDC_EDIT_MAXAGE, NULL, FALSE);
+            st->responseSeconds = GetDlgItemInt(hDlg, IDC_EDIT_RESP, NULL, FALSE);
             if (st->checkSeconds < 0 || st->checkSeconds > 3600) st->checkSeconds = 2;
+            // 与 provider.ini 的钳制保持一致：答复寿命低于 10 秒只会白白增加签名开销
+            if (st->responseSeconds < 10) st->responseSeconds = 10;
+            if (st->responseSeconds > 3600) st->responseSeconds = 3600;
+            // 状态码映射不经过界面：st 来自 ConfigEffectiveFor()，三个值原样写回，
+            // 不会把用户在 provider.ini 里手写的映射冲掉。
             if (!ConfigSaveCa(ctx->caId, *st)) LogLine(L"write ini failed: %lu", GetLastError());
             DbForCA(ctx->caId).Reload();          // 让新设置立刻生效
             ctx->modified = TRUE;

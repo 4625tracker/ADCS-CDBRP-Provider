@@ -402,6 +402,7 @@ mgr->vtable[0x30](mgr, caId, &v, pStatus, pHR);        // 0x30 = GetStatus
 | 客户端 `Bad time value` | `RevStatusInfo` 有填充，不是 40 字节（§6.3）| 用 `offsetof` 断言 `sizeof(RevStatusInfo)==40` |
 | `mmc.exe` 崩、无提示 | `GetStatus` 返回单个 `BSTR` 而非数组（§7.2）| 在 `uitest info` 里看 `vt` 是否 `0x2008` |
 | OCSP 全量 `unauthorized (6)` | 提供程序加载失败，或配置回环不一致（§5.3、§6.2）| 事件日志；提供程序日志里有没有 `Initialize` |
+| 只有**带 nonce** 的请求 `unauthorized (6)`，响应体正好 5 字节 | ISAPI 硬编码的 nonce 策略（§9.4）| 响应体是 `30 03 0A 01 06`，且非 nonce 请求完全正常 |
 | 事件 `0x8000ffff E_UNEXPECTED`「意外的方法调用顺序」 | 在 `Initialize` 之前调了管理器方法 | 抓调用顺序 |
 | `0x800706BA`「RPC 服务器不可用」 | 这是 `certutil` 的错，不是 COM：CA 名少了机器名前缀 | 换成 `机器名\CA名` |
 | 状态页显示 0 条但服务正常 | 状态依赖进程内全局（§7.3）| 在 `mmc.exe` 与 `ocspsvc.exe` 分别看 |
@@ -457,6 +458,38 @@ openssl ocsp -issuer ca.cer -serial 0x<serial> -url http://<host>:<port>/ocsp -C
 ```
 
 正确答案要与 CA 库一致：已吊销的返回 `revoked`，且 `reason` 与 `RevokedReason` 相符。
+
+**`-no_nonce` 是必需的**，原因见 §9.4。
+
+### 9.4 nonce：一条写在 ISAPI 里的"不允许"策略
+
+`ocspisapi.dll` 的请求处理主函数（`HttpExtensionProc` 入队之后的工作线程里）在解析完
+`requestList` 后做这样一件事：
+
+```c
+// 在 requestExtensions 里找 nonce（1.3.6.1.5.5.7.48.1.2）
+ext = find_nonce_extension(ctx);          // 内部就是 strcmp(OID, extOid) 循环
+if (ext == NULL) { /* 正常出响应 */ }
+else if (*(int *)(policy + 0x40) == 0) {  // 实测为 0（非 0 时会放行）
+    /* 记 trace 0x88609c6，然后 */
+    status = 6;                           // OCSPResponseStatus = unauthorized
+    hr     = 0x80070032;                  // ERROR_NOT_SUPPORTED (50)
+}
+```
+
+- 响应因此只有 5 字节：`30 03 0A 01 06`（`OCSPResponse{status=6}`，没有 `responseBytes`）。
+- 该 OID 字符串常量是 ASCII，直接扫 DER 编码（`06 09 2B 06 01 05 05 07 30 01 02`）
+  是扫不到的，必须按字符串找。
+- 请求**根本没到 `OCSPSvc`**：`provider-native.log` 里没有对应的 `VerifySerialNumber`，
+  所以这跟提供程序无关，内置 CRL 提供程序也一样。
+- 未知扩展不会被拒：把 nonce 的 OID 末字节改成别的（如 `…48.1.10`），同样的请求立刻
+  得到完整的 `successful` 响应。所以这是**专门识别 nonce 的策略**，不是解析能力不足。
+- 官方文档承认存在这个策略，但产品没暴露开关：[MS-OCSP] §3.2.5 第 8 条说
+  Nonce Policy 为 `Not Allowed` 时回 `unauthorized`；而 [MS-OCSPA] §3.2.1.2 的
+  `ResponderProperties` 表里没有任何 nonce 属性，`RequestFlags` 也只有
+  `RejectSignature` 一个位。
+
+完整实验数据、复现步骤与"要不要做网关"的取舍见 [OCSP-NONCE.md](OCSP-NONCE.md)。
 
 ## 10. 没搞清的部分
 
