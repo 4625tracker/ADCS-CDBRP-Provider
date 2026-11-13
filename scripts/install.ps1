@@ -136,7 +136,7 @@ function Resolve-CA {
     $cas = Get-ResponderCAs
     if ($cas.Count -eq 0) { return '' }
     if ($cas.Count -eq 1) { return $cas[0] }
-    throw ("multiple CA responder configs found: " + ($cas -join ', ') + ". Pass -CAConfig explicitly.")
+    throw ("multiple CA responder configs found: " + ($cas -join ', ') + ". Pass -CAConfig 'CAName' explicitly.")
 }
 
 # The registry key is the bare CA name, but certutil needs HOST\CA-NAME; a bare name fails
@@ -412,6 +412,16 @@ switch ($Mode) {
         }
 
         $ca = Resolve-CA
+        # 'HOST\CAName' and 'CAName' must build the same installation: the ini section, the
+        # snapshot file and the scheduled task are all keyed on the CA id, so a host prefix
+        # would create a second, parallel set of all three. Strip our own host name.
+        if (-not [string]::IsNullOrEmpty($ca) -and $ca.Contains('\')) {
+            $parts = $ca.Split('\')
+            if ($parts.Count -eq 2 -and ($parts[0] -ieq $env:COMPUTERNAME -or $parts[0] -ieq 'localhost')) {
+                Write-Warn2 ("dropping the host prefix: '" + $ca + "' -> '" + $parts[1] + "'")
+                $ca = $parts[1]
+            }
+        }
         $responderCas = @(Get-ResponderCAs)
         if ([string]::IsNullOrEmpty($ca)) {
             # Not switched to this provider yet (or no responder at all): reuse what the
@@ -434,10 +444,10 @@ switch ($Mode) {
         if (-not [string]::IsNullOrEmpty($ca)) {
             $bareCa = $ca.Split('\')[-1]
             if ($bareCa.Length -lt 2) {
-                throw ("refusing CA id '$ca': too short, the name was probably mangled on the way in. Pass -CAConfig 'HOST\CAName'.")
+                throw ("refusing CA id '$ca': too short, the name was probably mangled on the way in. Pass -CAConfig 'CAName'.")
             }
             if ($responderCas.Count -gt 0 -and @($responderCas | Where-Object { $_ -ieq $bareCa }).Count -eq 0) {
-                throw ("refusing CA id '$ca': the responder only knows " + ($responderCas -join ', ') + ". Pass -CAConfig explicitly.")
+                throw ("refusing CA id '$ca': the responder only knows " + ($responderCas -join ', ') + ". Pass -CAConfig 'CAName' explicitly.")
             }
         }
         $caConfig = Get-CaConfigString $ca
