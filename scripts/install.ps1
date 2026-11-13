@@ -412,13 +412,32 @@ switch ($Mode) {
         }
 
         $ca = Resolve-CA
+        $responderCas = @(Get-ResponderCAs)
         if ([string]::IsNullOrEmpty($ca)) {
             # Not switched to this provider yet (or no responder at all): reuse what the
             # existing provider.ini already serves, so the scheduled task keeps its CA.
-            $iniCas = @(Get-IniCas)
-            if ($iniCas.Count -gt 0) {
-                $ca = $iniCas[0].Split('\')[-1]
+            # Only entries that name a real responder CA are considered - a mangled section
+            # such as [ca:N] must never become the CA this installation serves.
+            foreach ($id in @(Get-IniCas)) {
+                $bare = $id.Split('\')[-1]
+                if ($responderCas.Count -eq 0 -or @($responderCas | Where-Object { $_ -ieq $bare }).Count -gt 0) {
+                    $ca = $bare
+                    break
+                }
+            }
+            if (-not [string]::IsNullOrEmpty($ca)) {
                 Write-Warn2 ('no responder CA found; using the CA recorded in provider.ini: ' + $ca)
+            }
+        }
+        # A CA id the responder does not know produces a snapshot nobody reads: the provider
+        # then answers "unknown" for every certificate. Fail here instead of installing it.
+        if (-not [string]::IsNullOrEmpty($ca)) {
+            $bareCa = $ca.Split('\')[-1]
+            if ($bareCa.Length -lt 2) {
+                throw ("refusing CA id '$ca': too short, the name was probably mangled on the way in. Pass -CAConfig 'HOST\CAName'.")
+            }
+            if ($responderCas.Count -gt 0 -and @($responderCas | Where-Object { $_ -ieq $bareCa }).Count -eq 0) {
+                throw ("refusing CA id '$ca': the responder only knows " + ($responderCas -join ', ') + ". Pass -CAConfig explicitly.")
             }
         }
         $caConfig = Get-CaConfigString $ca
